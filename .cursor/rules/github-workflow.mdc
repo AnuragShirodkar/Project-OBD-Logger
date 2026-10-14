@@ -1,0 +1,6 @@
+---
+description: Commit and push completed project changes to the project's GitHub repository across all chats
+alwaysApply: true
+---
+
+Follow the project-wide GitHub workflow in the root AGENTS.md. The user has given standing authorization to commit and push relevant completed project changes to https://github.com/AnuragShirodkar/Project-OBD-Logger.git across chats. Preserve existing work and remote history, exclude secrets and temporary files, run appropriate checks, and report whether the push succeeded.
