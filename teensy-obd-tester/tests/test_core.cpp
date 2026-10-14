@@ -31,6 +31,7 @@ int main(){
   assert(f.saw("POSITIVE")&&f.saw("NEGATIVE"));
   c.tick(1500);assert(!c.busy()&&!f.saw("NO_RESPONSE_TIMEOUT"));
   f.events.clear();assert(c.start(rpm,2,a,2000));
+  c.receive(frame(0x7e8,{4,0x41,0x0c,0x0c,0x80}),1999);
   c.tick(3500);assert(f.saw("NO_RESPONSE_TIMEOUT"));
   f.events.clear();assert(c.start(rpm,2,a,4000));
   c.receive(frame(0x7e8,{3,0x7f,1,0x78}),4010);c.tick(6000);
@@ -65,7 +66,17 @@ int main(){
   c.tick(1500);assert(!c.busy()&&f.saw("NO_RESPONSE_TIMEOUT"));
   f.allow=false;f.events.clear();assert(!c.start(rpm,2,a,0));
   assert(f.saw("REQUEST_TX_FAILED"));
+  f.allow=true;f.events.clear();f.sent.clear();a=obd::Address();
+  assert(c.start(vin,2,a,10000));
+  c.receive(frame(0x7e8,{0x10,10,0x49,2,1,65,66,67}),10001);
+  c.receive(frame(0x7e9,{0x10,10,0x49,2,1,97,98,99}),10002);
+  assert(f.sent.size()==3&&f.sent[1].id==0x7e0&&f.sent[2].id==0x7e1);
+  c.receive(frame(0x7e9,{0x21,100,101,102,103}),10010);
+  c.receive(frame(0x7e8,{0x21,68,69,70,71}),10020);
+  assert(f.events.size()==2&&f.events[0].id==0x7e9&&f.events[1].id==0x7e8);
+  assert(f.events[0].data[9]==103&&f.events[1].data[9]==71);c.tick(11500);
+  f.events.clear();assert(c.start(vin,2,a,12000));f.allow=false;
+  c.receive(frame(0x7e8,{0x10,10,0x49,2,1,65,66,67}),12001);
+  assert(f.saw("FLOW_CONTROL_TX_FAILED"));c.tick(13500);assert(!c.busy());
   puts("PASS: parser, addressing, matching, negative/pending, timeout, ISO-TP blocks/sequence/wrap, TX failure");
 }
-
-

@@ -106,7 +106,7 @@ public:
     active=true;return true;
   }
   void receive(const Frame &f,uint32_t now) {
-    if(!active || !address.accepts(f) || !f.len || f.len>8)return;
+    if(!active || int32_t(now-started)<0 || !address.accepts(f) || !f.len || f.len>8)return;
     uint8_t pci=f.data[0]>>4;
     if(pci==0) {
       size_t len=f.data[0]&15;
@@ -153,4 +153,3 @@ public:
   }
 };
 } // namespace obd
-
