@@ -1,6 +1,7 @@
 #include <FlexCAN_T4.h>
 #include <SD.h>
 #include "DiagnosticCore.h"
+#include "LogReport.h"
 
 // CAN1 default pins: TX=22, RX=23. TLE9371VSJ STB is grounded externally.
 FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> can;
@@ -18,7 +19,7 @@ Captured captures[512];
 volatile uint16_t captureHead=0,captureTail=0;
 volatile uint32_t captureDrops=0;
 uint32_t reportedCaptureDrops=0;
-struct LogLine {char text[160];};
+struct LogLine {char text[224];};
 LogLine logQueue[512];
 unsigned logHead=0,logTail=0,logCount=0;
 uint32_t logDrops=0,consoleDrops=0,reportedLogDrops=0;
@@ -26,6 +27,17 @@ char consoleQueue[32768];
 unsigned consoleHead=0,consoleTail=0,consoleCount=0;
 bool loggingFault=false;
 char logName[24]={};
+bool dateKnown=false;
+uint32_t dateSeconds=0,dateSetAt=0,logOpenedAt=0;
+void currentDate(char *out,size_t size){
+  if(!dateKnown){out[0]=0;return;}
+  obd::formatLocalDate(dateSeconds+uint32_t(millis()-dateSetAt)/1000,out,size);
+}
+void reportLine(const char *text){
+  if(logCount==512){++logDrops;loggingFault=true;return;}
+  snprintf(logQueue[logHead].text,sizeof(logQueue[logHead].text),"%s\n",text);
+  logHead=(logHead+1)%512;++logCount;
+}
 
 void queueConsole(const char *s) {
   size_t n=strlen(s);
@@ -46,9 +58,8 @@ void pumpConsole(){
 }
 void recordAt(uint32_t when,const char *kind,uint32_t id,const char *text){
   if(logCount==512){++logDrops;loggingFault=true;return;}
-  snprintf(logQueue[logHead].text,160,"%lu,%lu,%lu,%s,%08lX,\"%s\"\n",
-    (unsigned long)when,(unsigned long)transaction,(unsigned long)configuredRate,
-    kind,(unsigned long)id,text?text:"");
+  obd::formatEvent(logQueue[logHead].text,sizeof(logQueue[logHead].text),
+    when,transaction,configuredRate,kind,id,text);
   logHead=(logHead+1)%512;++logCount;
 }
 void note(const char *kind,const char *text){recordAt(millis(),kind,0,text);}
@@ -121,13 +132,7 @@ public:
       recordAt(millis(),kind,id,b);
     }
     if(n>=3 && p[0]==0x7F)recordAt(millis(),"NRC",id,nrcName(p[2]));
-    if(n>=3 && p[0]==0x41){
-      char b[72]={};
-      if(p[1]==0x0C&&n>=4)snprintf(b,sizeof b,"RPM=%.2f",((p[2]<<8)|p[3])/4.0);
-      if(p[1]==0x0D)snprintf(b,sizeof b,"Speed=%u km/h",p[2]);
-      if(p[1]==0x05)snprintf(b,sizeof b,"Coolant=%d C",int(p[2])-40);
-      if(b[0])recordAt(millis(),"DECODED",id,b);
-    }
+    if(!strcmp(kind,"POSITIVE"))obd::reportPositive(reportLine,id,p,n);
     if(!strcmp(kind,"REQUEST_END") || !strcmp(kind,"CANCELLED"))restartBus=true;
   }
 } sink;
@@ -140,6 +145,7 @@ void startScan(){
 void help(){
   note("HELP","auto | baud 500000 | addr 11 | addr 29 | target TX RX | functional");
   note("HELP","01 00 | 01 0C | 01 05 | 03 | 09 02 | status | stop | close | help");
+  note("HELP","date YYYY-MM-DD HH:MM:SS | Date stays blank until set (local time)");
   note("HELP","Hex bytes; newline required. 04 clears DTCs; 08 requests control actions.");
   note("HELP","Use full request bytes. Mode-only 01 becomes 01 00; 09 becomes 09 00.");
 }
@@ -183,6 +189,27 @@ void command(char *s){
     return;
   }
   if(diagnostics.busy()){note("BUSY","Wait for REQUEST_END or type stop");return;}
+  if(!strncmp(s,"date ",5)){
+    uint32_t seconds=0,elapsed=uint32_t(millis()-logOpenedAt)/1000;
+    if(!obd::parseLocalDate(s+5,seconds)||seconds<elapsed){
+      note("INPUT_ERROR","date YYYY-MM-DD HH:MM:SS; valid local date 2000..2099");return;
+    }
+    if(!sdGood){queueConsole("DATE_NOT_SAVED; log is not open\n");return;}
+    char date[24],header[100];
+    obd::formatLocalDate(seconds-elapsed,date,sizeof date);
+    obd::formatHeader(header,sizeof header,date);
+    uint64_t position=logfile.position();
+    logfile.flush();
+    bool ok=!logfile.getWriteError()&&logfile.seek(0);
+    if(ok)ok=logfile.write((const uint8_t*)header,strlen(header))==strlen(header);
+    bool restored=logfile.seek(position);
+    logfile.flush();
+    if(!ok||!restored||logfile.getWriteError()){
+      sdGood=false;loggingFault=true;queueConsole("DATE_HEADER_WRITE_FAILED; reset after checking SD\n");return;
+    }
+    dateKnown=true;dateSeconds=seconds;dateSetAt=millis();
+    note("DATE_SET",s+5);return;
+  }
   if(!strcmp(s,"auto")){startScan();return;}
   if(!strncmp(s,"baud ",5)){
     uint32_t rate=0;
@@ -224,6 +251,8 @@ void command(char *s){
     note("INPUT_ERROR","This mode takes no parameter bytes");return;}
   if((p[0]==5||p[0]==8)&&n<2){note("INPUT_ERROR","Supply the service-specific identifier/data");return;}
   ++transaction;
+  char requestDate[24];currentDate(requestDate,sizeof requestDate);
+  obd::reportRequest(reportLine,p,n,requestDate);
   if(!diagnostics.start(p,n,addressing,millis()))note("START_FAILED","Request not started");
 }
 char input[100];unsigned inputLength=0;bool discardLine=false;
@@ -243,13 +272,15 @@ void setup(){
   uint32_t wait=millis();while(!Serial&&millis()-wait<2500){}
   if(SD.begin(BUILTIN_SDCARD)){
     for(unsigned i=0;i<10000;++i){
-      snprintf(logName,sizeof logName,"OBD%04u.CSV",i);
+      snprintf(logName,sizeof logName,"OBD%04u.TXT",i);
       if(!SD.exists(logName)){logfile=SD.open(logName,FILE_WRITE);break;}
     }
     sdGood=bool(logfile);
   }
   if(sdGood){
-    const char *header="ms,request,bitrate,event,can_id,detail\n";
+    logOpenedAt=millis();
+    char header[100];obd::formatHeader(header,sizeof header,"");
+    queueConsole(header);
     sdGood=logfile.write((const uint8_t*)header,strlen(header))==strlen(header);
   }
   if(!sdGood)queueConsole("SD_INIT_FAILED; requests disabled; use FAT32 SD in Teensy's built-in slot\n");

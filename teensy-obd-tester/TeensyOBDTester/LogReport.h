@@ -28,7 +28,7 @@ inline void formatLocalDate(uint32_t seconds,char *out,size_t cap){
   uint32_t days=seconds/86400,part=seconds%86400;unsigned y=2000,m=1;
   while(days>=(leap(y)?366u:365u)){days-=leap(y)?366:365;++y;}
   while(days>=monthDays(y,m)){days-=monthDays(y,m);++m;}
-  snprintf(out,cap,"%04u-%02u-%02u %02u:%02u:%02u",y,m,unsigned(days+1),
+  snprintf(out,cap,"%04u-%02u-%02u %02u:%02u:%02u",y%10000,m%100,unsigned(days+1)%100,
     unsigned(part/3600),unsigned(part/60%60),unsigned(part%60));
 }
 inline void formatHeader(char *out,size_t cap,const char *date){
@@ -128,10 +128,14 @@ inline void reportPositive(ReportLine emit,uint32_t id,const uint8_t *p,size_t n
   if(mode==3||mode==7||mode==10){
     // ISO 15765 OBD DTC response: service, count, then two bytes per DTC.
     if(n<2||n<2+size_t(p[1])*2){emit("Incomplete DTC list; see raw response.");return;}
+    for(size_t i=2+size_t(p[1])*2;i<n;++i)if(p[i]){
+      emit("DTC count does not match data; see raw response.");return;
+    }
     snprintf(b,sizeof b,"Fault code entries: %u",p[1]);emit(b);
     if(!p[1])emit("No fault code entry.");
     for(unsigned i=0;i<p[1];++i){
       uint8_t a=p[2+2*i],c=p[3+2*i];
+      if(!a&&!c){emit("Empty DTC entry in counted list; see raw response.");continue;}
       snprintf(b,sizeof b,"%c%u%01X%02X    Description not installed","PCBU"[a>>6],
         (a>>4)&3,a&15,c);emit(b);
     }

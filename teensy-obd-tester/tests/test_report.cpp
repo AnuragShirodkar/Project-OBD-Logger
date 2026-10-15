@@ -37,6 +37,9 @@ int main(){
   obd::reportPositive(line,0x7E8,dtc,sizeof dtc);assert(contains("P0110")&&contains("U0123"));
   dtc[1]=3;lines.clear();obd::reportPositive(line,0x7E8,dtc,sizeof dtc);
   assert(contains("Incomplete")&&!contains("No fault"));
+  uint8_t mismatch[]={0x43,0,1,0x10};lines.clear();
+  obd::reportPositive(line,0x7E8,mismatch,sizeof mismatch);
+  assert(contains("count does not match")&&!contains("No fault"));
   uint8_t empty[]={0x4a,0};lines.clear();obd::reportPositive(line,0x7E8,empty,2);assert(contains("No fault"));
   uint8_t vin[]={0x49,2,1,'T','E','S','T','0','0','0','0','0','0','0','0','0','0','0','0','1'};
   lines.clear();obd::reportPositive(line,0x7E8,vin,sizeof vin);assert(contains("TEST0000000000001"));

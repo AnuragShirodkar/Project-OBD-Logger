@@ -2,7 +2,7 @@
 
 The active prototype is a **Teensy 4.1 manual OBD tester for a spare Audi ECU**.
 Enter requests through Arduino IDE Serial Monitor; view responses there and
-record the exchange to the Teensy's SD card.
+record the exchange to the Teensy's SD card as an OBD-SkillLogger text report.
 
 - [Teensy sketch, commands and first bench test](teensy-obd-tester/README.md)
 - [Open the Arduino sketch](teensy-obd-tester/TeensyOBDTester/TeensyOBDTester.ino)

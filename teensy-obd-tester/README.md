@@ -6,7 +6,7 @@ Windows configuration tool or JSON loader is required for this first test.
 ## Open and upload
 
 Open `TeensyOBDTester/TeensyOBDTester.ino` in Arduino IDE. Keep
-`DiagnosticCore.h` in the same sketch directory.
+`DiagnosticCore.h` and `LogReport.h` in the same sketch directory.
 
 Select **Teensy 4.1**, USB type **Serial**, and the Teensy port. Use the Teensy
 board package with its FlexCAN_T4 and SD libraries. This sketch was compiled with
@@ -33,7 +33,7 @@ does not prove the request is unsupported.
 
 ## First session
 
-On startup, a new log such as `OBD0000.CSV` is created and passive bitrate detection
+On startup, a new log such as `OBD0000.TXT` is created and passive bitrate detection
 starts. Each candidate is observed for two seconds: **500000, 250000, 125000,
 1000000 bit/s**. Three received data frames select a candidate.
 
@@ -73,6 +73,8 @@ Use space-separated hex bytes without a `0x` prefix.
 
 - `help`: print available commands.
 - `status`: rate, addressing, SD file and overflow counters.
+- `date YYYY-MM-DD HH:MM:SS`: enter current local date/time when idle. Valid years
+  are 2000..2099. Set it each session; it is not saved to a battery-backed RTC.
 - `auto`: repeat passive detection; allowed when idle.
 - `baud 500000`: manually select 125000, 250000, 500000 or 1000000.
 - `addr 11`: standard functional request 7DF, responses 7E8..7EF (default).
@@ -102,9 +104,47 @@ The firmware adds the transport length and zero padding; do NOT type those yours
 
 ## What is captured
 
-CSV columns: uptime milliseconds, request number, configured bitrate, event,
-CAN identifier in hex, detail. Detail is quoted so embedded commas are valid CSV.
-Timestamps are 32-bit uptime and wrap after about 49.7 days, not wall-clock dates.
+Logs are now readable **.TXT reports**, with exactly two introductory fields:
+
+```text
+OBD-SkillLogger Version 1.0.0
+Date:
+```
+
+There is no vendor copyright, UTC Date, license information, driver version or
+snapshot path in this header. The blank date reserves 19 spaces for a later update.
+No date or ECU information is copied from the reference logs.
+
+To fill in the date, enter your **current local time**, for example:
+
+```text
+date 2026-10-15 09:43:10
+```
+
+The example is illustrative: substitute the actual time. The command updates the
+fixed-size header in place without overwriting report data and estimates the log
+start time from elapsed uptime. Request sections then show their local time.
+The date stays blank until explicitly set; neither compile time nor an unverified
+RTC is treated as current time. Setting it again corrects the header and future
+request times, but does not rewrite earlier request timestamps. Sessions should
+be shorter than the 49.7-day millisecond rollover period.
+
+Each manual request starts a **mode section**, and matched responses are grouped
+under their actual CAN ECU identifier. The logger does not label an ECU as
+ECM/EngineControl just because its response ID is 7E8.
+
+Supported identifier bitmaps for modes 01, 02, 06 and 09 become readable rows.
+They describe only the ECU and range actually queried; this does not automatically
+scan all modes or infer support from missing responses. Mode 02 includes its
+freeze-frame number. Common live/freeze-frame PID values (load, temperatures,
+pressure, RPM, speed, airflow, throttle and voltage) are decoded. CAN DTC lists
+show code numbers; descriptions not installed are explicitly labelled. Mode 09
+VIN and ECU-name responses have a limited ASCII presentation.
+
+This is not the full Silver Scan-Tool interpretation database. Unknown identifiers,
+complex monitor/readiness data and unimplemented decoders retain raw response bytes.
+Raw events remain in the same text file and Serial Monitor, showing uptime,
+request number, CAN identifier, event, detail and configured bitrate.
 
 - `TX_SUBMIT`: request placed in a hardware mailbox; this alone does not prove ACK.
 - `FLOW_TX_SUBMIT`: ISO-TP flow-control frame submitted.
@@ -113,7 +153,6 @@ Timestamps are 32-bit uptime and wrap after about 49.7 days, not wall-clock date
 - `NEGATIVE`: complete 7F/service/NRC reply.
 - `RESPONSE_PENDING`: NRC 78; continue waiting, with a bounded overall deadline.
 - `NRC`: a short name for known codes, or an explicit unmapped-code description.
-- `DECODED`: RPM, coolant temperature or speed for recognized Mode 01 replies.
 - `NO_RESPONSE_TIMEOUT`: no matched reply; never fabricated as a negative response.
 - `ISOTP_TIMEOUT`, `ISOTP_SEQUENCE_ERROR`, `RESPONSE_DEADLINE`: incomplete transport.
 - `CAN_ERROR`: controller status, including ACK/CRC and transmit/receive counters.
@@ -155,7 +194,7 @@ This is for sparse diagnostic testing, not guaranteed lossless full-bus logging.
 An SD initialization/write/flush failure prevents further requests. Receive or
 log queue overflow is reported and also prevents new requests until reset.
 A log can lose its final buffered records on sudden power loss. Use close to
-finish cleanly. No existing log is overwritten; after OBD9999.CSV, free/archive
+finish cleanly. No existing log is overwritten; after OBD9999.TXT, free/archive
 logs before restarting.
 
 ## Verification
@@ -163,6 +202,8 @@ logs before restarting.
 - Host tests exercise parsing, ID matching, positive/negative/pending responses,
   absent response, multi-frame reassembly, flow-control blocks, sequence wrap and
   errors, custom IDs, 29-bit flow control, time rollover and send failure.
+- Report tests verify the exact header, fixed-size date update layout, invalid dates,
+  leap years, supported PID rows, decoded values, DTCs and malformed replies.
 - Teensy target compile: successful with board package 1.62.0.
 - An upstream FlexCAN_T4 string-copy warning is emitted by the CAN error decoder;
   the sketch uses numeric ESR bits for bus-off detection.
