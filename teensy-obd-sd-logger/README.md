@@ -12,15 +12,21 @@ This is a separate Arduino sketch. The original `teensy-obd-tester` files are un
 
 ## Stop controls and Windows file access
 
-- **Button:** connect a normally-open momentary pushbutton between **Teensy pin 2 and GND**. An internal pull-up is enabled; no external pull-up resistor is needed. Hold for at least one second to request a stop. This is NOT the onboard Program button (which enters the bootloader).
+- **Button:** connect a normally-open momentary pushbutton between **Teensy pin 35 and GND**. An internal pull-up is enabled; no external pull-up resistor is needed. Hold for at least three seconds to request a stop. This is NOT the onboard Program button (which enters the bootloader).
 - **USB serial alternative:** send `stop` or `close` with a newline. These are control commands only; diagnostic requests still come from JSON. No Serial Monitor is needed if the external button is fitted.
-- **File-access-only boot:** hold pin 2's button while powering/resetting the board. After SD initialization, the firmware exposes the card without starting CAN, validating JSON, or creating a log. This also allows installing/fixing config.json over USB.
+- **File-access-only boot:** hold pin 35's button while powering/resetting the board. After SD initialization, the firmware exposes the card without starting CAN, validating JSON, or creating a log. This also allows installing/fixing config.json over USB.
 - Connect a USB data cable to Windows. In normal firmware mode the USB product and MTP model/friendly name are **OBD logger**. After stop/file-access boot, open **This PC > OBD logger** and its SD storage to copy logs or replace config.json. MTP is a portable-device interface, not a drive letter; tools that require a normal disk path cannot use it directly. The storage volume may retain its existing SD volume label.
 - During logging the USB device can enumerate, but it advertises **no SD storage**. Live file browsing/editing is intentionally unavailable. USB connection/disconnection alone neither stops nor restarts logging. Once stopped, it stays stopped until reset/power-cycle.
 - Configuration edits take effect only on restart. Finish file transfers before disconnecting power or restarting. Use ordinary copy/replace in Explorer; do not restart while a JSON upload is incomplete.
 - MTP publishes a storage-added/reset event after stop. If Explorer cached an empty device, refresh it or reconnect USB after the stop. Windows may cache an earlier friendly name: reconnect the newly flashed device; if necessary remove its old portable-device entry in Device Manager and reconnect. The compiled descriptors and responder name are checked by the build; actual Explorer presentation still needs a Windows hardware test.
 
 The LED gives a short pulse for a matching diagnostic reply (including negative/pending replies), and is off after clean completion/file-access-only boot. A failed run blinks rapidly. The serial output says LOG_CLOSED on a clean stop. Wait for file access or completion before removing power.
+
+## Manual Mode 04 button
+
+Connect a second normally-open button between **pin 40 and GND** (INPUT_PULLUP). While logging is active, hold it for **two seconds** to queue one Mode 04 request. Release before another activation. A button held at boot must first be released. The request waits for the current transaction and uses the configured CAN addressing, then normal polling resumes. Button activation, transmission, response/negative response or timeout are logged. Stop/file-access takes priority and cancels any queued manual request. Mode 04 is unavailable during startup or file access and remains prohibited in automatic JSON jobs.
+
+Mode 04 clears emissions-related diagnostic information, including stored codes and freeze-frame information, and resets readiness information. With the default functional address 7DF, the request is not limited to one ECU. Use the button deliberately. Pin 35's file-access-only boot shortcut still works immediately when held at power-up; the three-second hold applies during normal operation.
 
 ## Long runs
 

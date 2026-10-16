@@ -15,11 +15,13 @@ bool configGood=false, running=false, finished=false, closing=false, completedCl
 uint32_t runStart=0, setupAt=0, summaryAt=0;
 uint32_t responseLedAt=0;
 bool responseLedSeen=false;
-constexpr unsigned STOP_BUTTON_PIN=2;
+constexpr unsigned STOP_BUTTON_PIN=35;
+constexpr unsigned MODE4_BUTTON_PIN=40;
 constexpr uint64_t LOG_SEGMENT_BYTES=128ull*1024*1024;
 bool stopRequested=false,sdMounted=false,fileTransferActive=false;
 unsigned nextLogIndex=0;
-automatic::StopButton stopButton;
+automatic::StopButton stopButton(3000),mode4Button(2000,true);
+bool mode4Requested=false;
 // MTP debug output must not block on an unattended serial console.
 class SilentStream:public Stream {
 public:
@@ -206,6 +208,9 @@ bool openLogSegment(){
 }
 void pollStop(){
   if(stopButton.update(digitalRead(STOP_BUTTON_PIN)==LOW,millis()))stopRequested=true;
+  if(mode4Button.update(digitalRead(MODE4_BUTTON_PIN)==LOW,millis())&&running&&!closing&&!stopRequested&&!mode4Requested){
+    mode4Requested=true;note("MODE04_BUTTON","Pin 40 held for 2 seconds; request queued until current transaction finishes");
+  }
   static char command[16];static unsigned length=0;static bool overflow=false;
   for(unsigned i=0;i<32&&Serial.available();++i){
     int c=Serial.read();
@@ -229,7 +234,7 @@ void rotateLog(){
 }
 void setup(){
   Serial.begin(115200);
-  pinMode(STOP_BUTTON_PIN,INPUT_PULLUP);MTP.PrintStream(&mtpDebug);MTP.begin();
+  pinMode(STOP_BUTTON_PIN,INPUT_PULLUP);pinMode(MODE4_BUTTON_PIN,INPUT_PULLUP);MTP.PrintStream(&mtpDebug);MTP.begin();
   pinMode(LED_BUILTIN,OUTPUT);digitalWrite(LED_BUILTIN,LOW);
   sdMounted=SD.begin(BUILTIN_SDCARD);
   if(sdMounted&&digitalRead(STOP_BUTTON_PIN)==LOW){
@@ -319,6 +324,7 @@ void stopRun(const char *reason){
     if(automatic::durationReached(config.duration,runStart,end))end=runStart+config.duration-1;
     schedule.finish(config.jobs,config.count,end);
   }
+  if(mode4Requested){note("MODE04_CANCELLED","Queued manual request cancelled by stop/fault");mode4Requested=false;}
   running=false;ready=false;diagnostics.cancel();transactionEnded=false;
   noInterrupts();captureEnabled=false;uint32_t boundaryFlags=canStarted?FLEXCANb_IFLAG1(CAN1):0;interrupts();
   if(canStarted){can.disableFIFOInterrupt();can.setBaudRate(configuredRate,LISTEN_ONLY);}
@@ -381,13 +387,23 @@ void loop(){
         }else if(!diagnostics.busy()&&captureRing.size()==0&&sdGood&&logfile.size()+sdBatchUsed>=LOG_SEGMENT_BYTES){
           rotateLog();
         }else if(!diagnostics.busy()&&captureRing.size()==0){
-          int index=schedule.select(config.jobs,config.count,now);
-          if(index>=0){auto &j=config.jobs[index];++transaction;
-            char b[110];snprintf(b,sizeof b,"job=%u target_interval_ms=%lu skipped_total=%lu late_starts=%lu",
-              unsigned(index+1),(unsigned long)j.interval,(unsigned long)j.skipped,(unsigned long)j.late);
-            note("SCHEDULE_SEND",b);obd::reportRequest(reportLine,j.bytes,j.length,"");
-            if(diagnostics.start(j.bytes,j.length,addressing,millis()))++j.sent;
-            else {loggingFault=true;stopRun("Request transmission failed");}
+          if(mode4Requested){
+            mode4Requested=false;++transaction;
+            const uint8_t request[]={0x04};
+            note("MANUAL_SEND","Mode 04 requested by pin 40 button; clears emissions diagnostic information");
+            obd::reportRequest(reportLine,request,sizeof(request),"");
+            if(!diagnostics.start(request,sizeof(request),addressing,millis())){
+              loggingFault=true;stopRun("Manual Mode 04 transmission failed");
+            }
+          }else {
+            int index=schedule.select(config.jobs,config.count,now);
+            if(index>=0){auto &j=config.jobs[index];++transaction;
+              char b[110];snprintf(b,sizeof b,"job=%u target_interval_ms=%lu skipped_total=%lu late_starts=%lu",
+                unsigned(index+1),(unsigned long)j.interval,(unsigned long)j.skipped,(unsigned long)j.late);
+              note("SCHEDULE_SEND",b);obd::reportRequest(reportLine,j.bytes,j.length,"");
+              if(diagnostics.start(j.bytes,j.length,addressing,millis()))++j.sent;
+              else {loggingFault=true;stopRun("Request transmission failed");}
+            }
           }
         }
       }

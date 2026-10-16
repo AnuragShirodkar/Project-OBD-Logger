@@ -17,6 +17,22 @@ obd::Frame frame(uint32_t id,std::initializer_list<uint8_t> p,bool ext=false){
   for(auto b:p) { f.data[i++]=b; } return f;
 }
 int main(){
+  // Manual clear request: exact wire payload, serialized operation, positive/negative/timeout.
+  {
+    static Fake clearSink;static obd::DiagnosticCore clearCore(clearSink);obd::Address address;
+    const uint8_t clear[]={4};
+    assert(clearCore.start(clear,1,address,0));
+    const auto &tx=clearSink.sent.back();assert(tx.id==0x7df&&tx.len==8&&tx.data[0]==1&&tx.data[1]==4);
+    for(unsigned i=2;i<8;++i)assert(tx.data[i]==0);
+    assert(!clearCore.start(clear,1,address,1));
+    clearCore.receive(frame(0x7e8,{1,0x44,0,0,0,0,0,0}),10);
+    assert(clearSink.saw("POSITIVE"));clearCore.tick(1500);assert(!clearCore.busy());
+    clearSink.events.clear();assert(clearCore.start(clear,1,address,2000));
+    clearCore.receive(frame(0x7e8,{3,0x7f,4,0x22,0,0,0,0}),2010);
+    assert(clearSink.saw("NEGATIVE"));clearCore.tick(3500);assert(!clearCore.busy());
+    clearSink.events.clear();assert(clearCore.start(clear,1,address,4000));
+    clearCore.tick(5500);assert(clearSink.saw("NO_RESPONSE_TIMEOUT")&&!clearCore.busy());
+  }
   uint8_t p[7];size_t n=0;
   assert(obd::parseHex("01 0c",p,7,n)&&n==2&&p[1]==12);
   for(const char *s:{"","01 ZZ","01 100","01 02 03 04 05 06 07 08","01\r","0x01"})
