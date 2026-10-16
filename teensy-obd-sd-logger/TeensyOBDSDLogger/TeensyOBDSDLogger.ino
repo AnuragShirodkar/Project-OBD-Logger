@@ -7,7 +7,8 @@ automatic::Config config;
 automatic::Schedule schedule;
 bool configGood=false, running=false, finished=false, closing=false, completedClean=false;
 uint32_t runStart=0, setupAt=0, summaryAt=0;
-
+uint32_t responseLedAt=0;
+bool responseLedSeen=false;
 // CAN1 default pins: TX=22, RX=23. TLE9371VSJ STB is grounded externally.
 FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> can;
 File logfile;
@@ -30,6 +31,15 @@ char consoleQueue[32768];
 unsigned consoleHead=0,consoleTail=0,consoleCount=0;
 bool loggingFault=false;
 char logName[24]={};
+// A visible 150 ms pulse for a validated diagnostic reply, at most twice/second.
+// No delay(): CAN receive and SD logging continue while the LED is lit.
+void indicateResponse(){
+  uint32_t now=millis();
+  if(!responseLedSeen||uint32_t(now-responseLedAt)>=500){
+    responseLedAt=now;responseLedSeen=true;
+  }
+}
+
 void reportLine(const char *text){
   if(logCount==512){++logDrops;loggingFault=true;return;}
   snprintf(logQueue[logHead].text,sizeof(logQueue[logHead].text),"%s\n",text);
@@ -122,6 +132,7 @@ public:
     note("TX_FAILED","No free hardware mailbox");return false;
   }
   void event(const char *kind,uint32_t id,const uint8_t *p,size_t n)override{
+    if(n&&(!strcmp(kind,"POSITIVE")||!strcmp(kind,"NEGATIVE")||!strcmp(kind,"RESPONSE_PENDING")))indicateResponse();
     if(!n)recordAt(millis(),kind,id,"");
     for(size_t offset=0;offset<n;offset+=24){
       char b[110];int pos=snprintf(b,sizeof b,"len=%u offset=%u",(unsigned)n,(unsigned)offset);
@@ -137,7 +148,7 @@ public:
 obd::DiagnosticCore diagnostics(sink);
 void setup(){
   Serial.begin(115200);
-  pinMode(LED_BUILTIN,OUTPUT);
+  pinMode(LED_BUILTIN,OUTPUT);digitalWrite(LED_BUILTIN,LOW);
   if(SD.begin(BUILTIN_SDCARD)){
     for(unsigned i=0;i<10000;++i){
       snprintf(logName,sizeof logName,"AUTO%04u.TXT",i);
@@ -206,6 +217,7 @@ void stopRun(const char *reason){
 }
 void loop(){
   if(finished){if(!completedClean)digitalWrite(LED_BUILTIN,(millis()/250)%2);pumpConsole();return;}
+  digitalWrite(LED_BUILTIN,running&&!closing&&responseLedSeen&&uint32_t(millis()-responseLedAt)<150 ? HIGH : LOW);
   Captured c;
   if(configGood&&!closing){
     for(unsigned i=0;i<64&&popCapture(c);++i){
@@ -232,7 +244,7 @@ void loop(){
       if(restartBus){restartBus=false;configureCan(configuredRate,false);}
       uint32_t now=millis();
       if(!running&&uint32_t(now-setupAt)>=config.startup){
-        configureCan(config.bitrate,false);runStart=millis();running=true;digitalWrite(LED_BUILTIN,HIGH);
+        configureCan(config.bitrate,false);runStart=millis();running=true;
         schedule.begin(config.jobs,config.count,runStart);note("RUN_START","One transaction at a time; late periods skipped, never replayed");
       }
       now=millis();
