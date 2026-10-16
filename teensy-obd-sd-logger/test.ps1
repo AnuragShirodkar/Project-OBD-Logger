@@ -14,6 +14,10 @@ try {
   if ($LASTEXITCODE) { throw 'Config test compilation failed' }
   & ./build/test_config.exe
   if ($LASTEXITCODE) { throw 'Config tests failed' }
+  & g++ -std=c++11 -Wall -Wextra -Werror tests/test_capture.cpp -o build/test_capture.exe
+  if ($LASTEXITCODE) { throw 'Capture test compilation failed' }
+  & ./build/test_capture.exe
+  if ($LASTEXITCODE) { throw 'Capture tests failed' }
   & $ArduinoCli compile --fqbn teensy:avr:teensy41 --build-path build/teensy41 TeensyOBDSDLogger
   if ($LASTEXITCODE) { throw 'Teensy compilation failed' }
 } finally { Pop-Location }
