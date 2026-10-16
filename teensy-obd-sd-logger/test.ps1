@@ -18,6 +18,10 @@ try {
   if ($LASTEXITCODE) { throw 'Capture test compilation failed' }
   & ./build/test_capture.exe
   if ($LASTEXITCODE) { throw 'Capture tests failed' }
-  & $ArduinoCli compile --fqbn teensy:avr:teensy41 --build-path build/teensy41 TeensyOBDSDLogger
+  & g++ -std=c++11 -Wall -Wextra -Werror tests/test_run_control.cpp -o build/test_run_control.exe
+  if ($LASTEXITCODE) { throw 'Run-control test compilation failed' }
+  & ./build/test_run_control.exe
+  if ($LASTEXITCODE) { throw 'Run-control tests failed' }
+  & $ArduinoCli compile --fqbn teensy:avr:teensy41:usb=serialmtp --build-path build/teensy41 TeensyOBDSDLogger
   if ($LASTEXITCODE) { throw 'Teensy compilation failed' }
 } finally { Pop-Location }

@@ -2,14 +2,15 @@
 
 ## Continuous logging and USB SD-card access
 
-Requested on 2026-10-16. Planned; not implemented yet.
+Requested on 2026-10-16. Implemented in the automatic sketch; hardware acceptance remains pending.
 
-- [ ] Remove the mandatory 60-second run limit. Support continuous logging until the user explicitly stops it; retain an optional timed run for testing.
-- [ ] Define and implement a user-operated stop control that stops new requests, handles the active transaction, drains capture/log buffers, flushes the SD card, and confirms completion before power is disconnected.
-- [ ] Allow users to browse and copy files from the Teensy's installed SD card over USB on Windows, without removing the card.
-- [ ] Show the device in Windows **This PC** as **OBD logger**, rather than Teensy. Verify the displayed name on Windows with the selected USB file-access implementation.
-- [ ] Evaluate MTP for device-managed file access. Do not expose the same filesystem to simultaneous independent host/device writers. Define access to the active log and restrict host deletion/editing of files being used by the logger.
-- [ ] Specify when host configuration edits take effect; do not change a running diagnostic schedule because a partially written JSON file becomes visible.
-- [ ] Verify USB connection/disconnection, file transfers, safe stop, long runs, log rotation/file-size limits, SD-full behavior, and capture performance while transferring files.
+- [x] Continuous logging with run_duration_ms=0, with optional timed runs retained.
+- [x] Safe stop using a one-second hold on a pin 2 to GND button, or USB stop/close command; drain buffers and close the log.
+- [x] SD access over USB MTP after safe stop, plus button-held file-access-only boot.
+- [x] Set USB product and MTP friendly/model names to OBD logger without changing installed core files.
+- [x] Protect logging from host edits: advertise no SD filesystem during capture; expose it after the log handle closes.
+- [x] Apply JSON changes only after restart; no live reload.
+- [x] Rotate logs near 128 MiB, preserve old logs, stop on SD write failure/name exhaustion.
+- [ ] Hardware verification: Windows This PC name and enumeration, log copy/hash comparison, configuration upload, USB reconnect, safe stop, file-access-only boot, long-run capture, rotation and SD-full behavior.
 
-The current firmware remains unchanged: it still uses the configured finite run duration and does not yet provide USB SD-card browsing. Preserve the original manual sketch when implementing these features in the automatic logger.
+See teensy-obd-sd-logger/README.md for wiring, Arduino USB selection and the first acceptance test. The original manual sketch remains unchanged.

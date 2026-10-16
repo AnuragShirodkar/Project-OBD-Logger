@@ -1,15 +1,32 @@
 # Automatic SD-configured OBD logger
 
-This is a separate Arduino sketch. The original `teensy-obd-tester` files are unchanged. Open `TeensyOBDSDLogger/TeensyOBDSDLogger.ino`; Arduino requires the folder and sketch basename to match. Its protocol/report headers are independent copies, so copying this whole sketch folder is sufficient.
+This is a separate Arduino sketch. The original `teensy-obd-tester` files are unchanged. Open `TeensyOBDSDLogger/TeensyOBDSDLogger.ino`; Arduino requires the folder and sketch basename to match. Copy the WHOLE sketch folder, including headers, usb_identity.c and the src subfolder. The original manual sketch is unchanged.
 
-## First run
+## Upload and run continuously
 
-1. Install Teensy board support plus ArduinoJson 7 (tested with Teensy 1.62.0 and ArduinoJson 7.4.3). Select Teensy 4.1 in Arduino IDE. FlexCAN_T4 and SD are supplied by Teensy board support.
-2. Copy the provided `config.json` to the ROOT of the Teensy microSD card. Do not rename it or place it inside a folder. Use the built-in SD slot and the same FAT32 card used in the manual tests.
-3. Upload this NEW sketch. No Serial Monitor commands are accepted or needed. USB serial, if connected, only mirrors output.
-4. With the ECU connected and ready, power the logger. It validates the entire configuration before transmitting. It enables normal CAN reception and acknowledgements immediately after validation; only diagnostic requests wait for the configured five-second startup delay. Verified external PSRAM is required.
-5. The demo stops scheduling after 60 seconds, lets any active transaction finish (up to the 10-second transaction deadline), marks the end of capture, drains every queued captured frame and text record, then flushes and closes the file. The onboard LED gives a 150 ms pulse when a matching positive, negative, or response-pending diagnostic reply is received (at most twice per second). Background CAN frames and transmitted requests alone do not trigger it. It stays off before the first reply and after successful completion; a failed run blinks continuously at 250 ms on / 250 ms off. A response pulse confirms communication, not necessarily request success. Wait for completion before removing the SD card or disconnecting power. The serial output also says `LOG_CLOSED` on success.
-6. Read the new `AUTO0000.TXT`, `AUTO0001.TXT`, etc. Existing files are not overwritten. Reset/power-cycle to reload JSON and start another run. Do not edit/remove the card while running.
+1. Use Teensy board package **1.62.0**, ArduinoJson 7, and board **Teensy 4.1**. Select **Tools > USB Type > Serial + MTP Disk (Experimental)**. The build script selects this option automatically. No separate MTP library is required; the core responder is customized locally (see src/mtp/PROVENANCE.md).
+2. Copy the updated `config.json` to the SD-card root. **`run_duration_ms: 0` means continuous logging**; omitting it also defaults to continuous. An old JSON with 60000 still stops after 60 seconds. Keep all other settings unchanged for comparison.
+3. Upload this sketch with its complete folder. On the first setup, insert the configured card as usual. Subsequent file copies and configuration updates can use USB without removing it.
+4. Power the ECU first, then Teensy. Normal CAN reception/acknowledgement begins after valid configuration and PSRAM checks. Diagnostic requests begin after the five-second startup delay. Logging continues until requested to stop, an optional duration expires, or a fault occurs.
+5. Stop using one of the controls below. The logger stops scheduling new requests, lets the active exchange finish, stops capture, drains buffers, and closes the file. SD-card access becomes available only after this shutdown.
+
+## Stop controls and Windows file access
+
+- **Button:** connect a normally-open momentary pushbutton between **Teensy pin 2 and GND**. An internal pull-up is enabled; no external pull-up resistor is needed. Hold for at least one second to request a stop. This is NOT the onboard Program button (which enters the bootloader).
+- **USB serial alternative:** send `stop` or `close` with a newline. These are control commands only; diagnostic requests still come from JSON. No Serial Monitor is needed if the external button is fitted.
+- **File-access-only boot:** hold pin 2's button while powering/resetting the board. After SD initialization, the firmware exposes the card without starting CAN, validating JSON, or creating a log. This also allows installing/fixing config.json over USB.
+- Connect a USB data cable to Windows. In normal firmware mode the USB product and MTP model/friendly name are **OBD logger**. After stop/file-access boot, open **This PC > OBD logger** and its SD storage to copy logs or replace config.json. MTP is a portable-device interface, not a drive letter; tools that require a normal disk path cannot use it directly. The storage volume may retain its existing SD volume label.
+- During logging the USB device can enumerate, but it advertises **no SD storage**. Live file browsing/editing is intentionally unavailable. USB connection/disconnection alone neither stops nor restarts logging. Once stopped, it stays stopped until reset/power-cycle.
+- Configuration edits take effect only on restart. Finish file transfers before disconnecting power or restarting. Use ordinary copy/replace in Explorer; do not restart while a JSON upload is incomplete.
+- MTP publishes a storage-added/reset event after stop. If Explorer cached an empty device, refresh it or reconnect USB after the stop. Windows may cache an earlier friendly name: reconnect the newly flashed device; if necessary remove its old portable-device entry in Device Manager and reconnect. The compiled descriptors and responder name are checked by the build; actual Explorer presentation still needs a Windows hardware test.
+
+The LED gives a short pulse for a matching diagnostic reply (including negative/pending replies), and is off after clean completion/file-access-only boot. A failed run blinks rapidly. The serial output says LOG_CLOSED on a clean stop. Wait for file access or completion before removing power.
+
+## Long runs
+
+Each text log rotates near **128 MiB** into the next unused AUTOxxxx.TXT file. Rotation occurs between diagnostic transactions; capture interrupts continue and the PSRAM queue absorbs the file-write pause. Sequence numbers and counters continue across segments. Each new segment has the standard header plus a SEGMENT_START record; combine all segments when checking receive continuity. Files are never overwritten. Exhausting the card or available names stops the logger; it does not delete old logs. The run is continuous, not unlimited storage.
+
+The old manual firmware and installed board libraries are not modified. The local MTP responder is tied to the 1.62.0 core API; revalidate when upgrading Teensy support.
 
 CAN1 uses Teensy TX22/RX23 with the TLE9371 transceiver, STB grounded as before. The logger does not control ECU ignition or wake inputs. Correct bitrate, ECU power/wake state and wiring remain prerequisites. For a complete vehicle, disable added logger termination; the bench network has separate termination requirements. Run the initial automatic test on the spare ECU.
 
@@ -32,7 +49,7 @@ The demo preserves the tested functional addressing: `tx_id: "7DF"`, `rx_id: "0"
 
 For the identified spare ECU only, you can change `tx_id` to `"7E0"` and `rx_id` to `"7E8"` to target that ECU alone. A physical-target transaction ends as soon as its terminal positive/negative response is fully processed. Pending NRC 78 and multi-frame replies still keep it open. This addressing change has not yet been hardware-tested by the new sketch. A timeout still waits `response_timeout_ms`; do not shorten it solely to force an advertised rate. Late replies after a timeout can be ambiguous if an identical request has since been sent; raw frames are retained, but this protocol has no request sequence number on the wire.
 
-ISO-TP flow control uses block size 8, minimum separation 10 ms, a one-second consecutive-frame timeout, and a ten-second overall transaction limit. Run duration stops NEW requests; it does not truncate an active response. Timing is best-effort cooperative scheduling: SD writes and CAN handling can add latency.
+ISO-TP flow control uses block size 8, minimum separation 10 ms, a one-second consecutive-frame timeout, and a ten-second overall transaction limit. A nonzero run duration or user stop stops NEW requests; it does not normally truncate an active response. Timing is best-effort cooperative scheduling: SD writes and CAN handling can add latency.
 
 ## JSON fields
 
@@ -41,11 +58,11 @@ ISO-TP flow control uses block size 8, minimum separation 10 ms, a one-second co
 - `address_bits`: 11 (default) or 29.
 - `tx_id` / `rx_id`: hexadecimal strings without `0x`. RX `"0"` selects the standard functional response range. Functional TX must be `"7DF"` for 11-bit or `"18DB33F1"` for 29-bit. A nonzero RX requires the matching physical TX, which is also used for flow control.
 - `startup_delay_ms`: 0..600000, default 5000.
-- `run_duration_ms`: 1000..86400000, default 60000. Finite duration ensures an automatic log-close point.
+- `run_duration_ms`: 0 (continuous, default), or 1000..86400000 for a timed run. Use the stop button/USB stop command to close a continuous run safely.
 - `response_timeout_ms`: 10..10000, default 1500; also the collection window for functional addressing.
 - `requests`: 1..16 unique objects, each containing `request` (space-separated hex bytes) and `interval_ms` (10..3600000).
 
-Unknown keys, unsupported modes, bad parameter counts, malformed IDs and invalid timing values prevent transmission. Configuration must be at most 8192 bytes. Missing or invalid configuration is reported in the new log if the SD card is writable. Configuration loads only at boot. The demo has no clock source: `Date:` stays blank; timestamps are uptime milliseconds, not wall-clock time.
+Unknown keys, unsupported modes, bad parameter counts, malformed IDs and invalid timing values prevent transmission. Configuration must be at most 8192 bytes. Missing or invalid configuration is reported in the new log if the SD card is writable. Configuration loads only at boot. Serial accepts only stop/close, not diagnostic requests. The demo has no clock source: `Date:` stays blank; timestamps are uptime milliseconds, not wall-clock time.
 
 ## Logs and counters
 
@@ -71,4 +88,8 @@ Run `./test.ps1` in PowerShell (requires g++, Arduino CLI and ArduinoJson 7). Te
 
 ## Next bench comparison
 
-Keep the existing config.json unchanged: 500 kbit/s, six jobs, five-second diagnostic delay, 60-second run, functional addressing and the 1500 ms response window. Upload the updated sketch with all accompanying headers. Power the spare ECU, then Teensy. Wait for the completion LED indication, remove the card and inspect the new AUTO log. Check CONFIG_OK, BUFFERS, CAPTURE_START, normal STOP, CAPTURE_DRAINED, final zero buffered/drop/overrun counters, write failures, and receive sequence continuity. Also compare CAN errors with earlier runs. This test improves and measures capture reliability; it does not change polling into a 10 ms stress test. A separate sequence-numbered STM32 traffic test is still needed to measure end-to-end losses.
+Use the updated config.json: 500 kbit/s, six jobs, five-second diagnostic delay, continuous duration, functional addressing and the 1500 ms response window. Upload with Serial + MTP selected. Power the spare ECU, then Teensy. Run beyond 60 seconds, request a safe stop, and copy the new AUTO log through Windows Explorer. Check CONFIG_OK, BUFFERS, CAPTURE_START, normal STOP, CAPTURE_DRAINED, final zero buffered/drop/overrun counters, write failures, and receive sequence continuity. Also compare CAN errors with earlier runs. This test improves and measures capture reliability; it does not change polling into a 10 ms stress test. A separate sequence-numbered STM32 traffic test is still needed to measure end-to-end losses.
+
+## Validation still requiring hardware
+
+Host tests cover zero/nonzero duration, held-button timing and timer wrap in addition to protocol, JSON and capture tests. The sketch builds in Serial + MTP mode. Hardware checks remain: Explorer naming/enumeration, copy a log and compare its hash, upload config and restart, unplug/replug USB, stop while a multi-frame reply is active, file-access-only boot, sustained logging beyond 60 seconds, 128 MiB rotation, and SD-full handling. Capture and file transfer intentionally run in separate modes, so simultaneous transfer performance is not claimed.

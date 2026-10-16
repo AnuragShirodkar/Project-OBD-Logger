@@ -4,7 +4,7 @@
 #include "Schedule.h"
 namespace automatic {
 struct Config {
-  uint32_t bitrate=500000,startup=5000,duration=60000,responseTimeout=1500;
+  uint32_t bitrate=500000,startup=5000,duration=0,responseTimeout=1500;
   obd::Address address; Job jobs[16];size_t count=0;
 };
 inline bool hexId(const char *s,uint32_t &id){
@@ -39,7 +39,8 @@ inline bool parseConfig(JsonVariantConst input,Config &c,const char *&error){
   if(!o["rx_id"].isUnbound()&&(!o["rx_id"].is<const char*>()||!hexId(o["rx_id"],c.address.rx)))return false;
   uint32_t limit=bits==29?0x1FFFFFFF:0x7FF, functional=bits==29?0x18DB33F1:0x7DF;
   if(c.address.tx>limit||c.address.rx>limit||(!c.address.rx&&c.address.tx!=functional)||(c.address.rx&&c.address.tx==functional)||c.address.rx==c.address.tx){error="Invalid functional/physical address pair";return false;}
-  if(!readUInt(o,"startup_delay_ms",c.startup,0,600000)||!readUInt(o,"run_duration_ms",c.duration,1000,86400000)||!readUInt(o,"response_timeout_ms",c.responseTimeout,10,10000)){error="Timing outside allowed range";return false;}
+  if(!readUInt(o,"startup_delay_ms",c.startup,0,600000)||!readUInt(o,"run_duration_ms",c.duration,0,86400000)||!readUInt(o,"response_timeout_ms",c.responseTimeout,10,10000)){error="Timing outside allowed range";return false;}
+  if(c.duration&&c.duration<1000){error="Nonzero run duration must be at least 1000 ms";return false;}
   if(!o["requests"].is<JsonArrayConst>()){error="requests must be an array";return false;}
   JsonArrayConst a=o["requests"].as<JsonArrayConst>();
   if(a.size()<1||a.size()>16){error="Use 1 to 16 requests";return false;}

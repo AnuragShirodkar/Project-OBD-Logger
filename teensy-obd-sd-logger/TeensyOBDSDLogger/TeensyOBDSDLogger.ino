@@ -5,12 +5,28 @@
 #include "Config.h"
 #include "CaptureRing.h"
 #include <new>
+#include "RunControl.h"
+#if !defined(USB_MTPDISK_SERIAL) || TEENSYDUINO < 160
+#error "Select Teensy 1.62.0 and USB Type: Serial + MTP Disk (Experimental)"
+#endif
 automatic::Config config;
 automatic::Schedule schedule;
 bool configGood=false, running=false, finished=false, closing=false, completedClean=false;
 uint32_t runStart=0, setupAt=0, summaryAt=0;
 uint32_t responseLedAt=0;
 bool responseLedSeen=false;
+constexpr unsigned STOP_BUTTON_PIN=2;
+constexpr uint64_t LOG_SEGMENT_BYTES=128ull*1024*1024;
+bool stopRequested=false,sdMounted=false,fileTransferActive=false;
+unsigned nextLogIndex=0;
+automatic::StopButton stopButton;
+// MTP debug output must not block on an unattended serial console.
+class SilentStream:public Stream {
+public:
+  int available() override{return 0;} int read() override{return -1;}
+  int peek() override{return -1;} void flush() override{}
+  size_t write(uint8_t) override{return 1;}
+} mtpDebug;
 // CAN1 default pins: TX=22, RX=23. TLE9371VSJ STB is grounded externally.
 FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> can;
 File logfile;
@@ -176,16 +192,50 @@ public:
   }
 } sink;
 obd::DiagnosticCore diagnostics(sink);
+void exposeSD(){
+  if(fileTransferActive||!sdMounted)return;
+  // Called only after the logger's SD handle is closed; MTP owns file access now.
+  MTP.addFilesystem(SD,"SD card");MTP.reset();fileTransferActive=true;
+}
+bool openLogSegment(){
+  for(;nextLogIndex<10000;++nextLogIndex){
+    snprintf(logName,sizeof logName,"AUTO%04u.TXT",nextLogIndex);
+    if(!SD.exists(logName)){logfile=SD.open(logName,FILE_WRITE);++nextLogIndex;return bool(logfile);}
+  }
+  return false;
+}
+void pollStop(){
+  if(stopButton.update(digitalRead(STOP_BUTTON_PIN)==LOW,millis()))stopRequested=true;
+  static char command[16];static unsigned length=0;static bool overflow=false;
+  for(unsigned i=0;i<32&&Serial.available();++i){
+    int c=Serial.read();
+    if(c=='\n'||c=='\r'){
+      command[length]=0;
+      if(!overflow&&(!strcmp(command,"stop")||!strcmp(command,"close")))stopRequested=true;
+      length=0;overflow=false;
+    }else if(length<sizeof(command)-1)command[length++]=char(c);else overflow=true;
+  }
+}
+void rotateLog(){
+  // Capture IRQ stays enabled while text is drained and the file is rotated.
+  note("SEGMENT_END","128 MiB rotation; capture sequence continues in next AUTO file");
+  while(logCount)pumpLog();writeBatch();logfile.flush();
+  if(logfile.getWriteError()){sdGood=false;loggingFault=true;++sdFailures;return;}
+  logfile.close();sdGood=openLogSegment();
+  if(!sdGood){loggingFault=true;++sdFailures;queueConsole("LOG_ROTATION_FAILED\n");return;}
+  char header[100];obd::formatHeader(header,sizeof header,"");
+  if(logfile.write((const uint8_t*)header,strlen(header))!=strlen(header)){sdGood=false;loggingFault=true;++sdFailures;return;}
+  note("SEGMENT_START","Continuation of current run; counters and receive sequence are not reset");
+}
 void setup(){
   Serial.begin(115200);
+  pinMode(STOP_BUTTON_PIN,INPUT_PULLUP);MTP.PrintStream(&mtpDebug);MTP.begin();
   pinMode(LED_BUILTIN,OUTPUT);digitalWrite(LED_BUILTIN,LOW);
-  if(SD.begin(BUILTIN_SDCARD)){
-    for(unsigned i=0;i<10000;++i){
-      snprintf(logName,sizeof logName,"AUTO%04u.TXT",i);
-      if(!SD.exists(logName)){logfile=SD.open(logName,FILE_WRITE);break;}
-    }
-    sdGood=bool(logfile);
+  sdMounted=SD.begin(BUILTIN_SDCARD);
+  if(sdMounted&&digitalRead(STOP_BUTTON_PIN)==LOW){
+    finished=true;completedClean=true;exposeSD();return;
   }
+  if(sdMounted)sdGood=openLogSegment();
   if(sdGood){
     char header[100];obd::formatHeader(header,sizeof header,"");
     queueConsole(header);
@@ -236,7 +286,7 @@ void setup(){
     diagnostics.setResponseWindow(config.responseTimeout);
     captureEnabled=true;configureCan(config.bitrate,false);canStarted=true;
     note("CAPTURE_START","ACK enabled; diagnostic requests delayed; no resets during polling");
-    note("CONFIG_OK","SD configuration accepted; no serial commands; startup delay begins");
+    note("CONFIG_OK","SD configuration accepted; stop/close supported; startup delay begins");
     char b[120];snprintf(b,sizeof b,"jobs=%u startup_ms=%lu duration_ms=%lu response_window_ms=%lu TX=%08lX RX=%08lX",
       unsigned(config.count),(unsigned long)config.startup,(unsigned long)config.duration,
       (unsigned long)config.responseTimeout,(unsigned long)addressing.tx,(unsigned long)addressing.rx);
@@ -266,7 +316,7 @@ void stopRun(const char *reason){
   if(closing||finished)return;
   if(running){
     uint32_t end=millis();
-    if(uint32_t(end-runStart)>=config.duration)end=runStart+config.duration-1;
+    if(automatic::durationReached(config.duration,runStart,end))end=runStart+config.duration-1;
     schedule.finish(config.jobs,config.count,end);
   }
   running=false;ready=false;diagnostics.cancel();transactionEnded=false;
@@ -277,7 +327,9 @@ void stopRun(const char *reason){
   note("STOP",reason);closing=true;
 }
 void loop(){
-  if(finished){if(!completedClean)digitalWrite(LED_BUILTIN,(millis()/250)%2);pumpConsole();return;}
+  // No SD filesystem is advertised while capture/logging owns it.
+  if(finished){MTP.loop();if(!completedClean)digitalWrite(LED_BUILTIN,(millis()/250)%2);pumpConsole();return;}
+  pollStop();
   digitalWrite(LED_BUILTIN,running&&!closing&&responseLedSeen&&uint32_t(millis()-responseLedAt)<150 ? HIGH : LOW);
   Captured c;
   if(configGood){
@@ -308,6 +360,7 @@ void loop(){
     if(((FLEXCANb_ESR1(CAN1)>>4)&3u)>=2u){note("BUS_OFF","Automatic run stopped");loggingFault=true;}
     if(loggingFault||!sdGood)stopRun("Logging or CAN failure; reset required");
     else {
+      if(stopRequested&&!running)stopRun("User stopped during startup");
       if(captureRing.size()==0)diagnostics.tick(millis());
       if(transactionEnded){
         transactionEnded=false;
@@ -322,9 +375,11 @@ void loop(){
       }
       now=millis();
       if(running){
-        if(uint32_t(now-runStart)>=config.duration){
+        if(stopRequested||automatic::durationReached(config.duration,runStart,now)){
           // Stop scheduling at the duration boundary; let the active exchange finish (up to 10 s).
-          if(!diagnostics.busy())stopRun("Configured duration finished");
+          if(!diagnostics.busy())stopRun(stopRequested?"User requested stop":"Configured duration finished");
+        }else if(!diagnostics.busy()&&captureRing.size()==0&&sdGood&&logfile.size()+sdBatchUsed>=LOG_SEGMENT_BYTES){
+          rotateLog();
         }else if(!diagnostics.busy()&&captureRing.size()==0){
           int index=schedule.select(config.jobs,config.count,now);
           if(index>=0){auto &j=config.jobs[index];++transaction;
@@ -344,6 +399,7 @@ void loop(){
   }
   for(unsigned i=0;i<128&&logCount;++i){pumpLog();pumpConsole();}
   pumpConsole();
+  MTP.loop();
   if(sdGood&&!diagnostics.busy()&&uint32_t(millis()-flushAt)>=1000){
     writeBatch();logfile.flush();flushAt=millis();
     if(logfile.getWriteError()){++sdFailures;sdGood=false;loggingFault=true;}
@@ -352,7 +408,7 @@ void loop(){
     writeBatch();
     bool ok=configGood&&sdGood&&!loggingFault;
     if(logfile){logfile.flush();ok=ok&&!logfile.getWriteError();logfile.close();}
-    completedClean=ok;sdGood=false;finished=true;digitalWrite(LED_BUILTIN,LOW);
+    completedClean=ok;sdGood=false;finished=true;exposeSD();digitalWrite(LED_BUILTIN,LOW);
     queueConsole(ok?"LOG_CLOSED; run complete\n":"RUN_FAILED; check SD/log and reset\n");pumpConsole();
   }
 }

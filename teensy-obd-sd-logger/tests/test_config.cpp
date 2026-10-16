@@ -6,7 +6,7 @@ bool parse(const char *text){JsonDocument d;assert(!deserializeJson(d,text));aut
 int main(){
   JsonDocument d;std::ifstream file("config.json");assert(!deserializeJson(d,file));
   automatic::Config c;const char *error;assert(automatic::parseConfig(d.as<JsonVariantConst>(),c,error));
-  assert(c.bitrate==500000&&c.count==6&&c.jobs[5].interval==1000&&c.jobs[1].bytes[2]==0);
+  assert(c.duration==0&&c.bitrate==500000&&c.count==6&&c.jobs[5].interval==1000&&c.jobs[1].bytes[2]==0);
   assert(parse(R"({"version":1,"requests":[{"request":"03","interval_ms":10}]})"));
   assert(!parse(R"({"version":1,"requests":[{"request":"04","interval_ms":10}]})"));
   assert(!parse(R"({"version":1,"requests":[{"request":"02 0C","interval_ms":10}]})"));
@@ -17,7 +17,9 @@ int main(){
   assert(!parse(R"({"version":1,"tx_id":"7DF","rx_id":"7E8","requests":[{"request":"03","interval_ms":10}]})"));
   assert(parse(R"({"version":1,"tx_id":"7E0","rx_id":"7E8","requests":[{"request":"03","interval_ms":10}]})"));
   assert(!parse(R"({"version":1,"requests":[{"request":"03","interval_ms":10},{"request":"03","interval_ms":20}]})"));
-  assert(!parse(R"({"version":1,"run_duration_ms":0,"requests":[{"request":"03","interval_ms":10}]})"));
+  assert(parse(R"({"version":1,"run_duration_ms":0,"requests":[{"request":"03","interval_ms":10}]})"));
+  assert(!parse(R"({"version":1,"run_duration_ms":1,"requests":[{"request":"03","interval_ms":10}]})"));
+  assert(parse(R"({"version":1,"run_duration_ms":60000,"requests":[{"request":"03","interval_ms":10}]})"));
   automatic::Schedule s;s.begin(c.jobs,c.count,100);
   for(int i=0;i<6;++i)assert(s.select(c.jobs,c.count,100)==i);
   assert(s.select(c.jobs,c.count,100)==-1);
