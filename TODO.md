@@ -17,3 +17,7 @@ See teensy-obd-sd-logger/README.md for wiring, Arduino USB selection and the fir
 
 - [x] Manual Mode 04 on pin 40: two-second hold, once per press, serialized with polling; stop takes priority.
 - [ ] Hardware-check pin 35 stop/file access and pin 40 manual request, including held-button and simultaneous-stop behavior.
+
+- [x] Step 1: bounded startup support discovery per ECU for Modes 01/02(frame 00)/06/09, with support inventory in logs.
+- [ ] Validate discovery support maps on the spare ECU; then apply per-ECU filtering to JSON requests.
+- [ ] Add response-driven polling and measure actual update rates and complete responses.

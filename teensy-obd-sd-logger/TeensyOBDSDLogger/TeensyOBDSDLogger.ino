@@ -6,6 +6,9 @@
 #include "CaptureRing.h"
 #include <new>
 #include "RunControl.h"
+#include "Discovery.h"
+automatic::Discovery discovery;
+bool discoveryStarted=false;
 #if !defined(USB_MTPDISK_SERIAL) || TEENSYDUINO < 160
 #error "Select Teensy 1.62.0 and USB Type: Serial + MTP Disk (Experimental)"
 #endif
@@ -187,8 +190,16 @@ public:
       for(size_t i=offset;i<n&&i<offset+24;++i)pos+=snprintf(b+pos,sizeof(b)-pos," %02X",p[i]);
       recordAt(millis(),kind,id,b);
     }
+    if(discovery.busy()&&n&&(!strcmp(kind,"POSITIVE")||!strcmp(kind,"NEGATIVE")||!strcmp(kind,"RESPONSE_PENDING")))
+      if(!discovery.observe(id))recordAt(millis(),"DISCOVERY_OVERFLOW",id,"ECU inventory capacity exceeded");
     if(n>=3 && p[0]==0x7F)recordAt(millis(),"NRC",id,nrcName(p[2]));
-    if(!strcmp(kind,"POSITIVE"))obd::reportPositive(reportLine,id,p,n);
+    if(!strcmp(kind,"POSITIVE")){
+      obd::reportPositive(reportLine,id,p,n);
+      if(discovery.busy()){
+        if(discovery.receive(id,p,n))recordAt(millis(),"DISCOVERY_MAP",id,"Validated support bitmap stored");
+        else recordAt(millis(),"DISCOVERY_INVALID",id,"Support bitmap not stored; malformed or ECU capacity exceeded");
+      }
+    }
     // Diagnostic completion never resets the receive controller.
     if(!strcmp(kind,"REQUEST_END")||!strcmp(kind,"CANCELLED"))transactionEnded=true;
   }
@@ -366,18 +377,38 @@ void loop(){
     if(((FLEXCANb_ESR1(CAN1)>>4)&3u)>=2u){note("BUS_OFF","Automatic run stopped");loggingFault=true;}
     if(loggingFault||!sdGood)stopRun("Logging or CAN failure; reset required");
     else {
-      if(stopRequested&&!running)stopRun("User stopped during startup");
+      if(stopRequested&&!running&&!diagnostics.busy())stopRun("User stopped during startup/discovery");
       if(captureRing.size()==0)diagnostics.tick(millis());
       if(transactionEnded){
         transactionEnded=false;
         if(txPending()){
           loggingFault=true;stopRun("TX pending at transaction end; stopped without resetting RX");
-        }
+        }else if(discovery.busy()&&!closing)discovery.finishTransaction();
       }
       uint32_t now=millis();
-      if(!closing&&!running&&uint32_t(now-setupAt)>=config.startup){
-        runStart=millis();running=true;
-        schedule.begin(config.jobs,config.count,runStart);note("RUN_START","One transaction at a time; late periods skipped, never replayed");
+      if(!closing&&!running&&!stopRequested&&uint32_t(now-setupAt)>=config.startup){
+        if(!discoveryStarted){
+          discoveryStarted=true;discovery.begin();
+          note("DISCOVERY_START","Modes 01/02(frame 00)/06/09; at most two attempts per range; polling unchanged after discovery");
+        }
+        if(discovery.busy()){
+          if(!diagnostics.busy()&&captureRing.size()==0){
+            uint8_t request[3];size_t length=discovery.request(request);++transaction;
+            char b[96];snprintf(b,sizeof b,"mode=%02X range=%02X attempt=%u",request[0],request[1],discovery.attemptNumber());
+            note("DISCOVERY_SEND",b);obd::reportRequest(reportLine,request,length,"");
+            if(!diagnostics.start(request,length,addressing,millis())){loggingFault=true;stopRun("Discovery transmission failed");}
+          }
+        }else {
+          char b[140];snprintf(b,sizeof b,"ECUs=%u overflow=%u; support inventory only; JSON requests not yet filtered",unsigned(discovery.count),unsigned(discovery.overflow));note("DISCOVERY_DONE",b);
+          if(!discovery.count)note("DISCOVERY_UNKNOWN","No valid support maps; absence is not proof of unsupported data");
+          for(size_t e=0;e<discovery.count;++e)for(size_t j=0;j<config.count;++j){
+            const auto &job=config.jobs[j];auto support=discovery.support(e,job.bytes[0],job.length>1?job.bytes[1]:0,job.length>2?job.bytes[2]:0);
+            snprintf(b,sizeof b,"job=%u mode=%02X identifier=%02X frame=%02X status=%s",unsigned(j+1),job.bytes[0],job.length>1?job.bytes[1]:0,job.length>2?job.bytes[2]:0,automatic::Discovery::name(support));
+            recordAt(millis(),"DISCOVERY_SUPPORT",discovery.ecus[e].id,b);
+          }
+          runStart=millis();running=true;
+          schedule.begin(config.jobs,config.count,runStart);note("RUN_START","One transaction at a time; late periods skipped, never replayed");
+        }
       }
       now=millis();
       if(running){

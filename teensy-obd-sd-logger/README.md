@@ -7,7 +7,7 @@ This is a separate Arduino sketch. The original `teensy-obd-tester` files are un
 1. Use Teensy board package **1.62.0**, ArduinoJson 7, and board **Teensy 4.1**. Select **Tools > USB Type > Serial + MTP Disk (Experimental)**. The build script selects this option automatically. No separate MTP library is required; the core responder is customized locally (see src/mtp/PROVENANCE.md).
 2. Copy the updated `config.json` to the SD-card root. **`run_duration_ms: 0` means continuous logging**; omitting it also defaults to continuous. An old JSON with 60000 still stops after 60 seconds. Keep all other settings unchanged for comparison.
 3. Upload this sketch with its complete folder. On the first setup, insert the configured card as usual. Subsequent file copies and configuration updates can use USB without removing it.
-4. Power the ECU first, then Teensy. Normal CAN reception/acknowledgement begins after valid configuration and PSRAM checks. Diagnostic requests begin after the five-second startup delay. Logging continues until requested to stop, an optional duration expires, or a fault occurs.
+4. Power the ECU first, then Teensy. Normal CAN reception/acknowledgement begins after valid configuration and PSRAM checks. Startup support discovery begins after the five-second startup delay; configured polling begins after discovery. Logging continues until requested to stop, an optional duration expires, or a fault occurs.
 5. Stop using one of the controls below. The logger stops scheduling new requests, lets the active exchange finish, stops capture, drains buffers, and closes the file. SD-card access becomes available only after this shutdown.
 
 ## Stop controls and Windows file access
@@ -106,3 +106,15 @@ Host tests cover zero/nonzero duration, held-button timing and timer wrap in add
 The supplied config.json now contains 30 explicit requests: 13 Mode 01 entries, six Mode 02 entries (frame 00), Modes 03/07/0A, Mode 06 supported-MID request 06 00, and seven Mode 09 entries. Mode 04 remains button-only; Modes 05/08 remain excluded. Upload the matching firmware before using this JSON: the request capacity is now 64 and Mode 06 accepts a one-byte MID.
 
 This is a candidate polling list, not automatic discovery. Support-map responses are logged, but do not yet filter unsupported entries or add further ranges/MIDs automatically. Unsupported requests can time out. Mode 06 currently requests only the first support bitmap, not individual monitor results. Mode 09 uses 1000 ms targets; other entries retain the existing 10 ms target. With serialized functional requests and the 1500 ms response window, a 30-request cycle is roughly 45 seconds and may take longer. These targets are not achieved polling rates.
+
+## Step 1: startup support discovery
+
+On each normal boot, after the configured startup delay, the logger discovers support maps for Modes 01, 02 (freeze frame 00), 06 and 09 using the configured addressing. Each mode starts at identifier 00; it follows 20, 40, ... E0 only when a responding ECU advertises continuation. Up to eight ECU response IDs are tracked independently, including ECUs returning a negative response (their absent maps remain unknown).
+
+Base queries are sent twice to allow a missed response to be recovered. Additional ranges are retried once if an ECU that advertised that range did not provide its map. Malformed replies, negative replies and timeouts never create an unsupported bitmap. Each query uses the existing diagnostic response window and ISO-TP timeout handling. Repeated valid bitmaps preserve positive support evidence.
+
+Logs contain DISCOVERY_START, DISCOVERY_SEND (mode/range/attempt), DISCOVERY_MAP and DISCOVERY_DONE, followed by DISCOVERY_SUPPORT for each JSON job and ECU. The support status is SUPPORTED, UNSUPPORTED, UNKNOWN, or NO_PID_BITMAP (Modes 03/07/0A). Nonzero freeze-frame numbers remain UNKNOWN in this first implementation. Full received payloads remain in the existing raw and diagnostic records.
+
+This first step inventories support only: JSON polling and its timing remain unchanged, including requests classified as unsupported. Filtering and response-driven polling are the next steps after verifying the inventory on hardware. Discovery runs on every restart and adds startup time (typically 12 seconds for eight base transactions at the default 1500 ms window, plus advertised ranges or extended waits). Timed polling duration starts after discovery. A no-response discovery completes with unknown results unless a CAN/SD fault stops the run.
+
+Pin 35 / USB stop works during discovery and waits for an active transaction before closing the log. Mode 04 is disabled during discovery. Holding pin 35 at boot still bypasses CAN and enters USB file access directly. For the bench check, power the ECU first, then Teensy, wait for DISCOVERY_DONE and RUN_START, stop normally, and inspect the per-ECU support summary. Hardware validation is still pending.
