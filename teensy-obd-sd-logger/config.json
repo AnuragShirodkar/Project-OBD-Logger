@@ -9,7 +9,71 @@
   "response_timeout_ms": 1500,
   "requests": [
     {
+      "request": "01 00",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 01",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 04",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 05",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 0B",
+      "interval_ms": 10
+    },
+    {
       "request": "01 0C",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 0D",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 0F",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 10",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 11",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 1F",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 2F",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 42",
+      "interval_ms": 10
+    },
+    {
+      "request": "02 00 00",
+      "interval_ms": 10
+    },
+    {
+      "request": "02 02 00",
+      "interval_ms": 10
+    },
+    {
+      "request": "02 04 00",
+      "interval_ms": 10
+    },
+    {
+      "request": "02 05 00",
       "interval_ms": 10
     },
     {
@@ -17,7 +81,15 @@
       "interval_ms": 10
     },
     {
+      "request": "02 0D 00",
+      "interval_ms": 10
+    },
+    {
       "request": "03",
+      "interval_ms": 10
+    },
+    {
+      "request": "06 00",
       "interval_ms": 10
     },
     {
@@ -25,12 +97,36 @@
       "interval_ms": 10
     },
     {
-      "request": "0A",
-      "interval_ms": 10
+      "request": "09 00",
+      "interval_ms": 1000
     },
     {
       "request": "09 02",
       "interval_ms": 1000
+    },
+    {
+      "request": "09 04",
+      "interval_ms": 1000
+    },
+    {
+      "request": "09 06",
+      "interval_ms": 1000
+    },
+    {
+      "request": "09 08",
+      "interval_ms": 1000
+    },
+    {
+      "request": "09 0A",
+      "interval_ms": 1000
+    },
+    {
+      "request": "09 0B",
+      "interval_ms": 1000
+    },
+    {
+      "request": "0A",
+      "interval_ms": 10
     }
   ]
 }

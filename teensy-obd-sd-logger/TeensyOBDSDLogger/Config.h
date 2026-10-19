@@ -5,7 +5,7 @@
 namespace automatic {
 struct Config {
   uint32_t bitrate=500000,startup=5000,duration=0,responseTimeout=1500;
-  obd::Address address; Job jobs[16];size_t count=0;
+  obd::Address address; Job jobs[64];size_t count=0;
 };
 inline bool hexId(const char *s,uint32_t &id){
   if(!s||!*s)return false;
@@ -43,7 +43,7 @@ inline bool parseConfig(JsonVariantConst input,Config &c,const char *&error){
   if(c.duration&&c.duration<1000){error="Nonzero run duration must be at least 1000 ms";return false;}
   if(!o["requests"].is<JsonArrayConst>()){error="requests must be an array";return false;}
   JsonArrayConst a=o["requests"].as<JsonArrayConst>();
-  if(a.size()<1||a.size()>16){error="Use 1 to 16 requests";return false;}
+  if(a.size()<1||a.size()>64){error="Use 1 to 64 requests";return false;}
   for(JsonVariantConst v:a){
     if(!v.is<JsonObjectConst>())return false;
     JsonObjectConst item=v.as<JsonObjectConst>();
@@ -51,7 +51,7 @@ inline bool parseConfig(JsonVariantConst input,Config &c,const char *&error){
     Job &j=c.jobs[c.count];
     if(!item["request"].is<const char*>()||!obd::parseHex(item["request"],j.bytes,3,j.length)){error="Invalid request hex bytes";return false;}
     unsigned mode=j.bytes[0];
-    if(!((mode==1&&j.length==2)||(mode==2&&j.length==3)||((mode==3||mode==7||mode==10)&&j.length==1)||(mode==9&&j.length==2))){error="Only modes 01,02,03,07,09,0A with correct parameters allowed";return false;}
+    if(!((mode==1&&j.length==2)||(mode==2&&j.length==3)||((mode==3||mode==7||mode==10)&&j.length==1)||((mode==6||mode==9)&&j.length==2))){error="Only modes 01,02,03,06,07,09,0A with correct parameters allowed";return false;}
     if(item["interval_ms"].isUnbound()||!readUInt(item,"interval_ms",j.interval,10,3600000)){error="interval_ms must be 10..3600000";return false;}
     for(size_t i=0;i<c.count;++i)if(c.jobs[i].length==j.length&&!memcmp(c.jobs[i].bytes,j.bytes,j.length)){error="Duplicate request";return false;}
     ++c.count;

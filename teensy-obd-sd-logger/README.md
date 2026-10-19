@@ -38,20 +38,21 @@ CAN1 uses Teensy TX22/RX23 with the TLE9371 transceiver, STB grounded as before.
 
 ## Demo requests
 
-- `01 0C`: current RPM, target interval 10 ms.
-- `02 0C 00`: freeze-frame RPM, frame 00, target interval 10 ms. A stored freeze frame may not exist; timeout/negative responses are retained.
-- `03`: stored emission-related codes, target interval 10 ms.
-- `07`: pending emission-related codes, target interval 10 ms.
-- `0A`: permanent emission-related codes, target interval 10 ms. The spare ECU did not answer this in previous testing; each timeout will slow other requests.
-- `09 02`: VIN, target interval 1000 ms. The spare ECU previously supplied hyphens, which are logged unchanged.
+- Mode 01: 00, 01, 04, 05, 0B, 0C, 0D, 0F, 10, 11, 1F, 2F, 42.
+- Mode 02: 00, 02, 04, 05, 0C, 0D, each with freeze-frame number 00.
+- Modes 03, 07 and 0A: no PID parameters.
+- Mode 06: 00 (supported monitor IDs only).
+- Mode 09: 00, 02, 04, 06, 08, 0A, 0B.
 
-Modes 04, 05, 06 and 08 are rejected by this demo's configuration validator. Each array entry is one mode-plus-parameter request, not an automatic scan of all PIDs in that mode. Edit the request hex string to change the PID; add entries to poll additional PIDs (maximum 16 unique requests).
+Mode 09 entries target 1000 ms; all other entries retain the 10 ms target. Availability depends on the ECU; timeouts and negative responses are retained.
+
+Modes 04, 05 and 08 are rejected by this demo's configuration validator. Each array entry is one mode-plus-parameter request, not an automatic scan of all PIDs in that mode. Edit the request hex string to change the PID; add entries to poll additional PIDs (maximum 64 unique requests).
 
 ## Timing: target periods, not guaranteed transmission rates
 
 Only ONE diagnostic transaction is active at a time. A fair round-robin scheduler selects due requests. It never interrupts a multi-frame response and never queues a burst of missed requests. On selecting an overdue job it records the delay and skips old periods. Thus 10 ms is a requested schedule, NOT a claim of one completed exchange every 10 ms.
 
-The demo preserves the tested functional addressing: `tx_id: "7DF"`, `rx_id: "0"`, 11-bit CAN. With this addressing, the core keeps the configured 1500 ms response window open to allow multiple ECUs to answer, even if the first answer arrives promptly. Actual request spacing in the default demo is therefore usually at least 1500 ms; all six requests get turns, and the one-second VIN interval will also be missed. This is deliberate response preservation, not a high-load stress generator.
+The demo preserves the tested functional addressing: `tx_id: "7DF"`, `rx_id: "0"`, 11-bit CAN. With this addressing, the core keeps the configured 1500 ms response window open to allow multiple ECUs to answer, even if the first answer arrives promptly. Actual request spacing in the default demo is therefore usually at least 1500 ms; all 30 requests get turns, and the one-second VIN interval will also be missed. This is deliberate response preservation, not a high-load stress generator.
 
 For the identified spare ECU only, you can change `tx_id` to `"7E0"` and `rx_id` to `"7E8"` to target that ECU alone. A physical-target transaction ends as soon as its terminal positive/negative response is fully processed. Pending NRC 78 and multi-frame replies still keep it open. This addressing change has not yet been hardware-tested by the new sketch. A timeout still waits `response_timeout_ms`; do not shorten it solely to force an advertised rate. Late replies after a timeout can be ambiguous if an identical request has since been sent; raw frames are retained, but this protocol has no request sequence number on the wire.
 
@@ -66,7 +67,7 @@ ISO-TP flow control uses block size 8, minimum separation 10 ms, a one-second co
 - `startup_delay_ms`: 0..600000, default 5000.
 - `run_duration_ms`: 0 (continuous, default), or 1000..86400000 for a timed run. Use the stop button/USB stop command to close a continuous run safely.
 - `response_timeout_ms`: 10..10000, default 1500; also the collection window for functional addressing.
-- `requests`: 1..16 unique objects, each containing `request` (space-separated hex bytes) and `interval_ms` (10..3600000).
+- `requests`: 1..64 unique objects, each containing `request` (space-separated hex bytes) and `interval_ms` (10..3600000).
 
 Unknown keys, unsupported modes, bad parameter counts, malformed IDs and invalid timing values prevent transmission. Configuration must be at most 8192 bytes. Missing or invalid configuration is reported in the new log if the SD card is writable. Configuration loads only at boot. Serial accepts only stop/close, not diagnostic requests. The demo has no clock source: `Date:` stays blank; timestamps are uptime milliseconds, not wall-clock time.
 
@@ -94,8 +95,14 @@ Run `./test.ps1` in PowerShell (requires g++, Arduino CLI and ArduinoJson 7). Te
 
 ## Next bench comparison
 
-Use the updated config.json: 500 kbit/s, six jobs, five-second diagnostic delay, continuous duration, functional addressing and the 1500 ms response window. Upload with Serial + MTP selected. Power the spare ECU, then Teensy. Run beyond 60 seconds, request a safe stop, and copy the new AUTO log through Windows Explorer. Check CONFIG_OK, BUFFERS, CAPTURE_START, normal STOP, CAPTURE_DRAINED, final zero buffered/drop/overrun counters, write failures, and receive sequence continuity. Also compare CAN errors with earlier runs. This test improves and measures capture reliability; it does not change polling into a 10 ms stress test. A separate sequence-numbered STM32 traffic test is still needed to measure end-to-end losses.
+Use the updated config.json: 500 kbit/s, 30 jobs, five-second diagnostic delay, continuous duration, functional addressing and the 1500 ms response window. Upload with Serial + MTP selected. Power the spare ECU, then Teensy. Run beyond 60 seconds, request a safe stop, and copy the new AUTO log through Windows Explorer. Check CONFIG_OK, BUFFERS, CAPTURE_START, normal STOP, CAPTURE_DRAINED, final zero buffered/drop/overrun counters, write failures, and receive sequence continuity. Also compare CAN errors with earlier runs. This test improves and measures capture reliability; it does not change polling into a 10 ms stress test. A separate sequence-numbered STM32 traffic test is still needed to measure end-to-end losses.
 
 ## Validation still requiring hardware
 
 Host tests cover zero/nonzero duration, held-button timing and timer wrap in addition to protocol, JSON and capture tests. The sketch builds in Serial + MTP mode. Hardware checks remain: Explorer naming/enumeration, copy a log and compare its hash, upload config and restart, unplug/replug USB, stop while a multi-frame reply is active, file-access-only boot, sustained logging beyond 60 seconds, 128 MiB rotation, and SD-full handling. Capture and file transfer intentionally run in separate modes, so simultaneous transfer performance is not claimed.
+
+## Expanded request configuration
+
+The supplied config.json now contains 30 explicit requests: 13 Mode 01 entries, six Mode 02 entries (frame 00), Modes 03/07/0A, Mode 06 supported-MID request 06 00, and seven Mode 09 entries. Mode 04 remains button-only; Modes 05/08 remain excluded. Upload the matching firmware before using this JSON: the request capacity is now 64 and Mode 06 accepts a one-byte MID.
+
+This is a candidate polling list, not automatic discovery. Support-map responses are logged, but do not yet filter unsupported entries or add further ranges/MIDs automatically. Unsupported requests can time out. Mode 06 currently requests only the first support bitmap, not individual monitor results. Mode 09 uses 1000 ms targets; other entries retain the existing 10 ms target. With serialized functional requests and the 1500 ms response window, a 30-request cycle is roughly 45 seconds and may take longer. These targets are not achieved polling rates.
