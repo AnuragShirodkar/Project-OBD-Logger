@@ -39,7 +39,7 @@ public:
 } mtpDebug;
 // CAN1 default pins: TX=22, RX=23. TLE9371VSJ STB is grounded externally.
 FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> can;
-File logfile;
+File logfile,obdfile;
 obd::Address addressing;
 uint32_t configuredRate=500000, transaction=0;
 bool ready=false, transactionEnded=false, sdGood=false;
@@ -54,17 +54,17 @@ automatic::CaptureRing<Captured> captureRing;
 Captured *captureMemory=nullptr;
 volatile uint32_t captureDrops=0, captureSeen=0, capturePeak=0, hardwareOverruns=0;
 uint32_t reportedCaptureDrops=0, captureDrained=0;
-struct LogLine {char text[320];};
+struct LogLine {char text[320];bool obdOnly=false;};
 LogLine emergencyLog[64];
 LogLine *logQueue=emergencyLog;
 unsigned logCapacity=64,logHead=0,logTail=0,logCount=0,logPeak=0;
 uint32_t logDrops=0,consoleDrops=0,reportedLogDrops=0;
-char sdBatch[8192];size_t sdBatchUsed=0;
+char sdBatch[8192],obdBatch[8192];size_t sdBatchUsed=0,obdBatchUsed=0;
 uint32_t sdWrites=0,sdWriteMaxUs=0,sdFailures=0,sdBytesUnwritten=0;
 char consoleQueue[32768];
 unsigned consoleHead=0,consoleTail=0,consoleCount=0;
 bool loggingFault=false;
-char logName[24]={};
+char logName[24]={},obdName[24]={};
 // A visible 150 ms pulse for a validated diagnostic reply, at most twice/second.
 // No delay(): CAN receive and SD logging continue while the LED is lit.
 void indicateResponse(){
@@ -76,15 +76,26 @@ void indicateResponse(){
 
 void reportLine(const char *text){
   if(logCount==logCapacity){++logDrops;loggingFault=true;return;}
+  logQueue[logHead].obdOnly=false;
   snprintf(logQueue[logHead].text,sizeof(logQueue[logHead].text),"%s\n",text);
   logHead=(logHead+1)%logCapacity;++logCount;if(logCount>logPeak)logPeak=logCount;
 }
 
 // Trace fragments include their own newlines; complete payloads stay on one line.
-void traceWrite(const char *text){
+void enqueueTrace(const char *text,bool obdOnly){
   if(logCount==logCapacity){++logDrops;loggingFault=true;return;}
+  logQueue[logHead].obdOnly=obdOnly;
   snprintf(logQueue[logHead].text,sizeof(logQueue[logHead].text),"%s",text);
   logHead=(logHead+1)%logCapacity;++logCount;if(logCount>logPeak)logPeak=logCount;
+}
+
+void traceWrite(const char *text){enqueueTrace(text,false);}
+void obdWrite(const char *text){enqueueTrace(text,true);}
+void exchangeWrite(const char *text){traceWrite(text);obdWrite(text);}
+void obdStatus(const char *text,uint32_t id=0){
+  char line[180];if(id)snprintf(line,sizeof line,"%7lu  %s %03lX\n",(unsigned long)millis(),text,(unsigned long)id);
+  else snprintf(line,sizeof line,"%7lu  %s\n",(unsigned long)millis(),text);
+  obdWrite(line);
 }
 
 void queueConsole(const char *s) {
@@ -106,6 +117,7 @@ void pumpConsole(){
 }
 void recordAt(uint32_t when,const char *kind,uint32_t id,const char *text){
   if(logCount==logCapacity){++logDrops;loggingFault=true;return;}
+  logQueue[logHead].obdOnly=false;
   if(id)snprintf(logQueue[logHead].text,sizeof(logQueue[logHead].text),"%7lu  %s  %03lX  %s\n",(unsigned long)when,kind,(unsigned long)id,text?text:"");
   else snprintf(logQueue[logHead].text,sizeof(logQueue[logHead].text),"%7lu  %s  %s\n",(unsigned long)when,kind,text?text:"");
   logHead=(logHead+1)%logCapacity;++logCount;if(logCount>logPeak)logPeak=logCount;
@@ -113,27 +125,36 @@ void recordAt(uint32_t when,const char *kind,uint32_t id,const char *text){
 void note(const char *kind,const char *text){recordAt(millis(),kind,0,text);}
 void raw(const char *kind,const obd::Frame &f,uint32_t when){
   (void)kind;
-  obd::traceCan(traceWrite,"TX",f.extended,f.id,when,f.data,f.len);
+  obd::traceCan(exchangeWrite,"TX",f.extended,f.id,when,f.data,f.len);
 }
-void writeBatch(){
-  if(!sdBatchUsed)return;
+void writeFileBatch(File &file,char *buffer,size_t &used){
+  if(!used)return;
   if(sdGood){
-    uint32_t start=micros();size_t written=logfile.write((const uint8_t*)sdBatch,sdBatchUsed);
+    uint32_t start=micros();size_t written=file.write((const uint8_t*)buffer,used);
     uint32_t elapsed=micros()-start;++sdWrites;if(elapsed>sdWriteMaxUs)sdWriteMaxUs=elapsed;
-    if(written!=sdBatchUsed){
-      sdBytesUnwritten+=sdBatchUsed-written;++sdFailures;sdGood=false;loggingFault=true;
-      queueConsole("SD_WRITE_FAILED; data incomplete\n");
-    }
-  }else sdBytesUnwritten+=sdBatchUsed;
-  sdBatchUsed=0;
+    if(written!=used){sdBytesUnwritten+=used-written;++sdFailures;sdGood=false;loggingFault=true;queueConsole("SD_WRITE_FAILED; data incomplete\n");}
+  }else sdBytesUnwritten+=used;
+  used=0;
+}
+void writeBatch(){writeFileBatch(logfile,sdBatch,sdBatchUsed);writeFileBatch(obdfile,obdBatch,obdBatchUsed);}
+bool fileWriteError(){return logfile.getWriteError()||obdfile.getWriteError();}
+void flushFiles(){logfile.flush();obdfile.flush();}
+void closeFiles(){logfile.close();obdfile.close();}
+bool writeHeaders(){
+  char header[100];obd::formatHeader(header,sizeof header,"");size_t n=strlen(header);
+  size_t a=logfile.write((const uint8_t*)header,n),b=obdfile.write((const uint8_t*)header,n);
+  return a==n&&b==n;
 }
 void pumpLog(){
   if(!logCount)return;
-  const char *line=logQueue[logTail].text;size_t n=strlen(line);
-  if(sdBatchUsed+n>sizeof(sdBatch))writeBatch();
-  memcpy(sdBatch+sdBatchUsed,line,n);sdBatchUsed+=n;
-  queueConsole(line);logTail=(logTail+1)%logCapacity;--logCount;
-  if(sdBatchUsed>=4096)writeBatch();
+  const char *line=logQueue[logTail].text;size_t n=strlen(line);bool only=logQueue[logTail].obdOnly;
+  char *buffer=only?obdBatch:sdBatch;size_t &used=only?obdBatchUsed:sdBatchUsed;
+  File &file=only?obdfile:logfile;
+  if(used+n>sizeof(sdBatch))writeFileBatch(file,buffer,used);
+  memcpy(buffer+used,line,n);used+=n;
+  if(!only)queueConsole(line); // Duplicate diagnostic fragments go only to the companion file.
+  logTail=(logTail+1)%logCapacity;--logCount;
+  if(used>=4096)writeFileBatch(file,buffer,used);
 }
 void onCan(const CAN_message_t &f){
   if(!captureEnabled)return;
@@ -177,8 +198,8 @@ const char *nrcName(uint8_t code){
 }
 void traceExchangeRequest(uint32_t now){
   if(!traceRequestLength)return;
-  obd::traceRequest(traceWrite,now,traceRequestBytes,traceRequestLength);
-  obd::tracePayload(traceWrite,"TX",addressing.tx,traceRequestAt,traceRequestBytes,traceRequestLength);
+  obd::traceRequest(exchangeWrite,now,traceRequestBytes,traceRequestLength);
+  obd::tracePayload(exchangeWrite,"TX",addressing.tx,traceRequestAt,traceRequestBytes,traceRequestLength);
   traceExchangeShown=true;
 }
 class HardwareSink:public obd::Sink{
@@ -204,20 +225,24 @@ public:
     if(!n){
       if(!strcmp(kind,"REQUEST_END")){
         if(!traceExchangeShown)traceExchangeRequest(millis());
-        traceWrite("\n");
+        exchangeWrite("\n");
       }else {
         if(!strcmp(kind,"NO_RESPONSE_TIMEOUT"))traceExchangeRequest(millis());
-        recordAt(millis(),kind,id,"");
+        recordAt(millis(),kind,id,"");obdStatus(kind,id);
       }
     }
     if(n){
+      if(discovery.busy()){
+        bool known=false;for(size_t i=0;i<discovery.count;++i)if(discovery.ecus[i].id==id)known=true;
+        if(!known){char line[100];snprintf(line,sizeof line,"%7lu  ECU %u detected, Identifier %03lX\n",(unsigned long)millis(),unsigned(discovery.count),(unsigned long)id);obdWrite(line);}
+      }
       traceExchangeRequest(millis());
-      obd::tracePayload(traceWrite,"RX",id,millis(),p,n);
-      traceWrite("\n");
+      obd::tracePayload(exchangeWrite,"RX",id,millis(),p,n);
+      exchangeWrite("\n");
     }
     if(discovery.busy()&&n&&(!strcmp(kind,"POSITIVE")||!strcmp(kind,"NEGATIVE")||!strcmp(kind,"RESPONSE_PENDING")))
       if(!discovery.observe(id))recordAt(millis(),"DISCOVERY_OVERFLOW",id,"ECU inventory capacity exceeded");
-    if(n>=3 && p[0]==0x7F)recordAt(millis(),"NRC",id,nrcName(p[2]));
+    if(n>=3 && p[0]==0x7F){recordAt(millis(),"NRC",id,nrcName(p[2]));obdStatus(nrcName(p[2]),id);}
     if(!strcmp(kind,"POSITIVE")){
 
       if(discovery.busy()){
@@ -249,7 +274,12 @@ void exposeSD(){
 bool openLogSegment(){
   for(;nextLogIndex<10000;++nextLogIndex){
     snprintf(logName,sizeof logName,"AUTO%04u.TXT",nextLogIndex);
-    if(!SD.exists(logName)){logfile=SD.open(logName,FILE_WRITE);++nextLogIndex;return bool(logfile);}
+    snprintf(obdName,sizeof obdName,"OBD%04u.TXT",nextLogIndex);
+    if(!SD.exists(logName)&&!SD.exists(obdName)){
+      logfile=SD.open(logName,FILE_WRITE);obdfile=SD.open(obdName,FILE_WRITE);++nextLogIndex;
+      if(logfile&&obdfile)return true;
+      closeFiles();return false;
+    }
   }
   return false;
 }
@@ -271,12 +301,11 @@ void pollStop(){
 void rotateLog(){
   // Capture IRQ stays enabled while text is drained and the file is rotated.
   note("SEGMENT_END","128 MiB rotation; capture sequence continues in next AUTO file");
-  while(logCount)pumpLog();writeBatch();logfile.flush();
-  if(logfile.getWriteError()){sdGood=false;loggingFault=true;++sdFailures;return;}
-  logfile.close();sdGood=openLogSegment();
+  while(logCount)pumpLog();writeBatch();flushFiles();
+  if(fileWriteError()){sdGood=false;loggingFault=true;++sdFailures;return;}
+  closeFiles();sdGood=openLogSegment();
   if(!sdGood){loggingFault=true;++sdFailures;queueConsole("LOG_ROTATION_FAILED\n");return;}
-  char header[100];obd::formatHeader(header,sizeof header,"");
-  if(logfile.write((const uint8_t*)header,strlen(header))!=strlen(header)){sdGood=false;loggingFault=true;++sdFailures;return;}
+  if(!writeHeaders()){sdGood=false;loggingFault=true;++sdFailures;return;}
   note("SEGMENT_START","Continuation of current run; counters and receive sequence are not reset");
 }
 void setup(){
@@ -291,7 +320,7 @@ void setup(){
   if(sdGood){
     char header[100];obd::formatHeader(header,sizeof header,"");
     queueConsole(header);
-    sdGood=logfile.write((const uint8_t*)header,strlen(header))==strlen(header);
+    sdGood=writeHeaders();
   }
   if(!sdGood)queueConsole("SD_INIT_FAILED; requests disabled; use FAT32 SD in Teensy's built-in slot\n");
   note("LOG_INFO","Time=uptime milliseconds; TX-CAN=mailbox submission");
@@ -378,7 +407,7 @@ void stopRun(const char *reason){
   if(canStarted){can.disableFIFOInterrupt();can.setBaudRate(configuredRate,LISTEN_ONLY);}
   char boundary[120];snprintf(boundary,sizeof boundary,"fifo_pending=%u; capture ends here; later bus traffic excluded; draining software queue",
     unsigned((boundaryFlags&FLEXCAN_IFLAG1_BUF5I)!=0));note("CAPTURE_STOP",boundary);
-  note("STOP",reason);closing=true;
+  note("STOP",reason);obdStatus(reason);closing=true;
 }
 void loop(){
   // No SD filesystem is advertised while capture/logging owns it.
@@ -392,6 +421,8 @@ void loop(){
       obd::Frame f={};f.id=c.frame.id;f.extended=c.frame.flags.extended;f.len=c.frame.len;
       memcpy(f.data,c.frame.buf,8);
       obd::traceCan(traceWrite,"RX",f.extended,f.id,c.ms,f.data,f.len,c.frame.flags.remote);
+      if(!closing&&diagnostics.busy()&&addressing.accepts(f)&&!c.frame.flags.remote)
+        obd::traceCan(obdWrite,"RX",f.extended,f.id,c.ms,f.data,f.len);
       ++captureDrained;
       if(c.frame.flags.overrun){note("CAN_OVERRUN","Hardware receive overrun");loggingFault=true;}
       if(!closing&&!c.frame.flags.remote)diagnostics.receive(f,c.ms);
@@ -423,7 +454,7 @@ void loop(){
       uint32_t now=millis();
       if(!closing&&!running&&!stopRequested&&uint32_t(now-setupAt)>=config.startup){
         if(!discoveryStarted){
-          discoveryStarted=true;discovery.begin();
+          discoveryStarted=true;discovery.begin();obdStatus("Connecting...");
           note("DISCOVERY_START","Modes 01/02(frame 00)/06/09; at most two attempts per range; collecting expected-responder maps");
         }
         if(discovery.busy()){
@@ -441,6 +472,7 @@ void loop(){
             snprintf(b,sizeof b,"job=%u mode=%02X identifier=%02X frame=%02X status=%s",unsigned(j+1),job.bytes[0],job.length>1?job.bytes[1]:0,job.length>2?job.bytes[2]:0,automatic::Discovery::name(support));
             recordAt(millis(),"DISCOVERY_SUPPORT",discovery.ecus[e].id,b);
           }
+          obdStatus(discovery.count?"Discovery complete":"Discovery complete: no ECU detected");
           runStart=millis();running=true;
           schedule.begin(config.jobs,config.count,runStart);note("RUN_START","One transaction at a time; late periods skipped, never replayed");
         }
@@ -483,13 +515,13 @@ void loop(){
   pumpConsole();
   MTP.loop();
   if(sdGood&&!diagnostics.busy()&&uint32_t(millis()-flushAt)>=1000){
-    writeBatch();logfile.flush();flushAt=millis();
-    if(logfile.getWriteError()){++sdFailures;sdGood=false;loggingFault=true;}
+    writeBatch();flushFiles();flushAt=millis();
+    if(fileWriteError()){++sdFailures;sdGood=false;loggingFault=true;}
   }
   if(closing&&finalSummary&&!logCount){
     writeBatch();
     bool ok=configGood&&sdGood&&!loggingFault;
-    if(logfile){logfile.flush();ok=ok&&!logfile.getWriteError();logfile.close();}
+    if(logfile||obdfile){flushFiles();ok=ok&&!fileWriteError();closeFiles();}
     completedClean=ok;sdGood=false;finished=true;exposeSD();digitalWrite(LED_BUILTIN,LOW);
     queueConsole(ok?"LOG_CLOSED; run complete\n":"RUN_FAILED; check SD/log and reset\n");pumpConsole();
   }
