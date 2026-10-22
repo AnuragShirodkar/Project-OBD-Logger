@@ -21,5 +21,22 @@ int main(){
   assert(!mode4.update(true,7019));assert(mode4.update(true,7020));
   assert(!mode4.update(true,10000));assert(!mode4.update(false,10001));
   assert(!mode4.update(true,10002));assert(mode4.update(true,12002));
+  Mode4Button manual;
+  assert(manual.update(true,0)==0&&manual.update(true,5000)==0); // No clear at boot.
+  assert(manual.update(false,5010)==0);
+  assert(manual.update(false,5040)==Mode4Button::Released);
+  assert(manual.update(true,5050)==0);assert(manual.update(false,5055)==0); // Press bounce.
+  assert(manual.update(true,5060)==0);assert(manual.update(true,5090)==Mode4Button::Pressed);
+  assert(manual.holding());assert(manual.update(true,7089)==0);
+  assert(manual.update(true,7090)==Mode4Button::Triggered);
+  assert(manual.update(true,9000)==0);
+  assert(manual.update(false,9001)==0);assert(manual.update(true,9010)==0); // Release bounce cannot rearm.
+  assert(manual.update(true,12000)==0);
+  assert(manual.update(false,12001)==0);assert(manual.update(false,12031)==Mode4Button::Released);
+  assert(!manual.holding());assert(manual.update(true,12040)==0);assert(manual.update(true,12070)==Mode4Button::Pressed);
+  assert(manual.update(true,14070)==Mode4Button::Triggered);
+  Mode4Button wrapped;wrapped.update(false,0xfffff000u);wrapped.update(false,0xfffff020u);
+  wrapped.update(true,0xffffff00u);assert(wrapped.update(true,0xffffff1eu)==Mode4Button::Pressed);
+  assert(wrapped.update(true,1773)==0);assert(wrapped.update(true,1774)==Mode4Button::Triggered);
   puts("PASS: continuous/timed run, 3-second stop, 2-second manual button, release and clock wrap");
 }

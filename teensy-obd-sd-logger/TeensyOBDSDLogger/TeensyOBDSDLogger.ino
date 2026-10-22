@@ -28,7 +28,8 @@ constexpr unsigned MODE4_BUTTON_PIN=40;
 constexpr uint64_t LOG_SEGMENT_BYTES=128ull*1024*1024;
 bool stopRequested=false,sdMounted=false,fileTransferActive=false;
 unsigned nextLogIndex=0;
-automatic::StopButton stopButton(3000),mode4Button(2000,true);
+automatic::StopButton stopButton(3000);
+automatic::Mode4Button mode4Button;
 bool mode4Requested=false;
 // MTP debug output must not block on an unattended serial console.
 class SilentStream:public Stream {
@@ -273,8 +274,14 @@ bool openLogSegment(){
 }
 void pollStop(){
   if(stopButton.update(digitalRead(STOP_BUTTON_PIN)==LOW,millis()))stopRequested=true;
-  if(mode4Button.update(digitalRead(MODE4_BUTTON_PIN)==LOW,millis())&&running&&!closing&&!stopRequested&&!mode4Requested){
-    mode4Requested=true;note("MODE04_BUTTON","Pin 40 held for 2 seconds; request queued until current transaction finishes");
+  unsigned buttonEvents=mode4Button.update(digitalRead(MODE4_BUTTON_PIN)==LOW,millis());
+  if(buttonEvents&automatic::Mode4Button::Pressed)note("MODE04_PRESSED","Pin 40 LOW detected; hold for 2 seconds");
+  if(buttonEvents&automatic::Mode4Button::Released)note("MODE04_RELEASED","Pin 40 HIGH; button armed for next press");
+  if(buttonEvents&automatic::Mode4Button::Triggered){
+    if(configGood&&!closing&&!stopRequested&&!mode4Requested){
+      mode4Requested=true;
+      note("MODE04_QUEUED",running?"Will send after current transaction":"Will send after startup/discovery completes");
+    }else note("MODE04_IGNORED","Stopping, configuration failure, or request already queued");
   }
   static char command[16];static unsigned length=0;static bool overflow=false;
   for(unsigned i=0;i<32&&Serial.available();++i){
@@ -401,7 +408,7 @@ void loop(){
   // No SD filesystem is advertised while capture/logging owns it.
   if(finished){MTP.loop();if(!completedClean)digitalWrite(LED_BUILTIN,(millis()/250)%2);pumpConsole();return;}
   pollStop();
-  digitalWrite(LED_BUILTIN,running&&!closing&&responseLedSeen&&uint32_t(millis()-responseLedAt)<150 ? HIGH : LOW);
+  digitalWrite(LED_BUILTIN,!closing&&(mode4Button.holding()||(running&&responseLedSeen&&uint32_t(millis()-responseLedAt)<150)) ? HIGH : LOW);
   Captured c;
   if(configGood){
     // Reserve space for decoded messages; RX remains buffered during slow SD writes.
@@ -475,7 +482,7 @@ void loop(){
           if(mode4Requested){
             mode4Requested=false;++transaction;
             const uint8_t request[]={0x04};
-            note("MANUAL_SEND","Mode 04 requested by pin 40 button; clears emissions diagnostic information");
+            note("MODE04_SEND","Sending clear request from pin 40 button; ECU may accept or reject");
 
             if(!startRequest(request,sizeof(request))){
               loggingFault=true;stopRun("Manual Mode 04 transmission failed");

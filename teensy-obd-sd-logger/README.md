@@ -24,7 +24,7 @@ The LED gives a short pulse for a matching diagnostic reply (including negative/
 
 ## Manual Mode 04 button
 
-Connect a second normally-open button between **pin 40 and GND** (INPUT_PULLUP). While logging is active, hold it for **two seconds** to queue one Mode 04 request. Release before another activation. A button held at boot must first be released. The request waits for the current transaction and uses the configured CAN addressing, then normal polling resumes. Button activation, transmission, response/negative response or timeout are logged. Stop/file-access takes priority and cancels any queued manual request. Mode 04 is unavailable during startup or file access and remains prohibited in automatic JSON jobs.
+Connect a second normally-open button between **pin 40 and GND** (INPUT_PULLUP). While logging is active, hold it for **two seconds** to queue one Mode 04 request. Release before another activation. A button held at boot must first be released. The request waits for the current transaction and uses the configured CAN addressing, then normal polling resumes. Button activation, transmission, response/negative response or timeout are logged. Stop/file-access takes priority and cancels any queued manual request. Mode 04 can be queued during startup/discovery and is unavailable during file access and remains prohibited in automatic JSON jobs.
 
 Mode 04 clears emissions-related diagnostic information, including stored codes and freeze-frame information, and resets readiness information. With the default functional address 7DF, the request is not limited to one ECU. Use the button deliberately. Pin 35's file-access-only boot shortcut still works immediately when held at power-up; the three-second hold applies during normal operation.
 
@@ -119,7 +119,7 @@ Logs contain DISCOVERY_START, DISCOVERY_SEND (mode/range/attempt), DISCOVERY_MAP
 
 Discovery supplies the expected-responder sets for faster polling; unsupported JSON requests are still retained until the separate filtering step. Discovery runs on every restart and adds startup time (at least 560 ms for eight base transactions at the default 70 ms window, plus response collection extensions and advertised ranges). Timed polling duration starts after discovery. A no-response discovery completes with unknown results unless a CAN/SD fault stops the run.
 
-Pin 35 / USB stop works during discovery and waits for an active transaction before closing the log. Mode 04 is disabled during discovery. Holding pin 35 at boot still bypasses CAN and enters USB file access directly. For the bench check, power the ECU first, then Teensy, wait for DISCOVERY_DONE and RUN_START, stop normally, and inspect the per-ECU support summary. Hardware validation is still pending.
+Pin 35 / USB stop works during discovery and waits for an active transaction before closing the log. Mode 04 waits until discovery completes before transmission. Holding pin 35 at boot still bypasses CAN and enters USB file access directly. For the bench check, power the ECU first, then Teensy, wait for DISCOVERY_DONE and RUN_START, stop normally, and inspect the per-ECU support summary. Hardware validation is still pending.
 
 ## Fast-polling bench acceptance
 
@@ -142,3 +142,9 @@ Each recording now creates only **OBDxxxx.TXT**, with the requested diagnostic e
 The sole log includes diagnostic requests, flow-control frames, response-address frames during active transactions, assembled responses, timeouts, negative-response explanations, button actions, faults and final health counters. Periodic scheduler/debug records go to Serial Monitor only. Stop flushes and closes the OBD file before USB access. Rotation creates a new unused OBD filename near 128 MiB. No JSON change is required.
 
 This change does not establish that the previously reported malformed transferred records are resolved. Verify the next OBD file after a clean stop.
+
+## Mode 04 button feedback
+
+Pin 40 uses INPUT_PULLUP: connect a normally-open button between **pin 40 and GND**. A stable press lights the onboard LED and records MODE04_PRESSED. Hold for two seconds (plus 30 ms debounce) to record MODE04_QUEUED; the request is sent after discovery and the active transaction finish, with MODE04_SEND followed by the request/response block. The button must be released before another activation. A button held during boot must first be released; a short press does not clear codes. Stop/fault cancels queued clears, and file-access mode never transmits.
+
+Earlier firmware silently consumed holds that completed during discovery. Those holds now queue instead. This fixes a software path, but cannot confirm physical button wiring. If the LED does not light or MODE04_PRESSED never appears while logging, verify the pin number and the switch's two separate contact groups. MODE04_SEND with a negative response or timeout means the button worked but clearing was not confirmed by the ECU. Mode 04 clears emissions diagnostic data and may be rejected under the current ECU conditions.

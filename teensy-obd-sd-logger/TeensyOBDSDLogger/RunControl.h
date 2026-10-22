@@ -8,6 +8,26 @@ public:
   bool ready(uint32_t now)const{return !sent||uint32_t(now-last)>=10;}
   void submitted(uint32_t now){last=now;sent=true;}
 };
+// Debounce both edges; a button held at boot must be released before arming.
+class Mode4Button {
+  bool initialized=false,candidate=true,stable=true,armed=false,fired=false;
+  uint32_t changedAt=0,pressedAt=0;
+public:
+  enum { Pressed=1, Released=2, Triggered=4 };
+  unsigned update(bool rawPressed,uint32_t now){
+    if(!initialized){initialized=true;candidate=rawPressed;changedAt=now;}
+    if(rawPressed!=candidate){candidate=rawPressed;changedAt=now;}
+    unsigned events=0;
+    if(candidate!=stable&&uint32_t(now-changedAt)>=30){
+      stable=candidate;
+      if(!stable){armed=true;fired=false;events|=Released;}
+      else if(armed){pressedAt=now;events|=Pressed;}
+    }
+    if(stable&&armed&&!fired&&uint32_t(now-pressedAt)>=2000){fired=true;events|=Triggered;}
+    return events;
+  }
+  bool holding()const{return stable&&armed;}
+};
 class StopButton {
   bool held=false,fired=false,armed;uint32_t since=0,holdMs;
 public:
