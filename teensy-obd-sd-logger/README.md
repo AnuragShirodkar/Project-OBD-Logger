@@ -30,7 +30,7 @@ Mode 04 clears emissions-related diagnostic information, including stored codes 
 
 ## Long runs
 
-Each text log rotates near **128 MiB** into the next unused AUTOxxxx.TXT file. Rotation occurs between diagnostic transactions; capture interrupts continue and the PSRAM queue absorbs the file-write pause. Sequence numbers and counters continue across segments. Each new segment has the standard header plus a SEGMENT_START record; combine all segments when checking receive continuity. Files are never overwritten. Exhausting the card or available names stops the logger; it does not delete old logs. The run is continuous, not unlimited storage.
+Each text log rotates near **128 MiB** into the next unused OBDxxxx.TXT file. Rotation occurs between diagnostic transactions; capture interrupts continue and the PSRAM queue absorbs the file-write pause. Sequence numbers and counters continue across segments. Each new segment has the standard header plus a SEGMENT_START record; combine all segments when checking receive continuity. Files are never overwritten. Exhausting the card or available names stops the logger; it does not delete old logs. The run is continuous, not unlimited storage.
 
 The old manual firmware and installed board libraries are not modified. The local MTP responder is tied to the 1.62.0 core API; revalidate when upgrading Teensy support.
 
@@ -97,7 +97,7 @@ Run `./test.ps1` in PowerShell (requires g++, Arduino CLI and ArduinoJson 7). Te
 
 ## Next bench comparison
 
-Use the updated config.json: 500 kbit/s, 30 jobs, five-second diagnostic delay, continuous duration, functional addressing and the 70 ms response window. Upload with Serial + MTP selected. Power the spare ECU, then Teensy. Run beyond 60 seconds, request a safe stop, and copy the new AUTO log through Windows Explorer. Check CONFIG_OK, BUFFERS, CAPTURE_START, normal STOP, CAPTURE_DRAINED, final zero buffered/drop/overrun counters, write failures, and receive sequence continuity. Also compare CAN errors with earlier runs. This test improves and measures capture reliability; it does not change polling into a 10 ms stress test. A separate sequence-numbered STM32 traffic test is still needed to measure end-to-end losses.
+Use the updated config.json: 500 kbit/s, 30 jobs, five-second diagnostic delay, continuous duration, functional addressing and the 70 ms response window. Upload with Serial + MTP selected. Power the spare ECU, then Teensy. Run beyond 60 seconds, request a safe stop, and copy the new OBD log through Windows Explorer. Check CONFIG_OK, BUFFERS, CAPTURE_START, normal STOP, CAPTURE_DRAINED, final zero buffered/drop/overrun counters, write failures, and receive sequence continuity. Also compare CAN errors with earlier runs. This test improves and measures capture reliability; it does not change polling into a 10 ms stress test. A separate sequence-numbered STM32 traffic test is still needed to measure end-to-end losses.
 
 ## Validation still requiring hardware
 
@@ -127,7 +127,7 @@ Upload the complete sketch and copy the updated config.json (response_timeout_ms
 
 ## CAN and diagnostic trace layout
 
-New AUTO logs retain only the OBD-SkillLogger Version 1.0.0 and Date fields in the file header. Date remains blank until a trustworthy date source is implemented; Time fields are uptime milliseconds. Existing log files are not rewritten.
+New OBD logs retain only the OBD-SkillLogger Version 1.0.0 and Date fields in the file header. Date remains blank until a trustworthy date source is implemented; Time fields are uptime milliseconds. Existing log files are not rewritten.
 
 Raw frames use TX-CAN / RX-CAN with Std/Ext ID, Time, Len and hexadecimal bytes. ISO-TP flow-control frames are included as TX-CAN. TX-CAN means accepted into a transmit mailbox, not confirmed wire transmission. Requests have a Mode/PID (or MID)/Frame description and an assembled TX line; assembled positive, negative and pending responses use RX lines. Transport bytes and CAN padding appear only in the raw view. Multi-frame payloads remain on a single logical RX line even up to 4095 bytes; bounded queue fragments prevent large temporary allocations. Remote frames are marked RTR.
 
@@ -135,10 +135,10 @@ Status/error records use the same compact timestamp-first layout. Per-frame CAPT
 
 The log contains no reference-tool branding. New output uses seven-column event timestamps and six-column raw CAN timestamps, matching the supplied sample. Existing files are not rewritten.
 
-## Readable OBD exchange file
+## Single readable OBD file
 
-Open **OBDxxxx.TXT** for the compact request/response layout. Each recording creates a matched pair: AUTOxxxx.TXT preserves all CAN frames, diagnostic data and health/status records; OBDxxxx.TXT contains outgoing diagnostic/flow-control frames, received frames from the configured response address range while a transaction is active, and Mode/PID followed by assembled TX/RX payloads. Background IDs such as 080/081/105 are excluded only from OBDxxxx.TXT. Connecting, newly detected ECUs, transaction failures/timeouts, NRC explanations and stop status are included. A response ID match alone does not prove payload matching; unmatched frames in that address range can still appear in the raw diagnostic view.
+Each recording now creates only **OBDxxxx.TXT**, with the requested diagnostic exchange layout. AUTO files are no longer created; existing files on the SD card are left untouched. Full unrelated bus traffic is intentionally no longer saved. The logger still receives/processes it for controller operation and capture health, so captured-frame counters exceed the diagnostic RX lines exported to the file.
 
-Both files keep the OBD-SkillLogger header. They use independent bounded SD batches through the same PSRAM queue, rotate together between transactions, and are flushed and closed before USB MTP access. A write failure in either stops logging. Existing AUTO or OBD names are never overwritten: a new pair uses the next index for which neither filename exists. Serial Monitor retains the complete AUTO stream without companion duplicates. No JSON changes are required.
+The sole log includes diagnostic requests, flow-control frames, response-address frames during active transactions, assembled responses, timeouts, negative-response explanations, button actions, faults and final health counters. Periodic scheduler/debug records go to Serial Monitor only. Stop flushes and closes the OBD file before USB access. Rotation creates a new unused OBD filename near 128 MiB. No JSON change is required.
 
-The screenshot-style block is covered by a formatter regression test; paired-file behavior still needs hardware validation. This readability change does not resolve the previously observed malformed records in transferred logs. For the next bench run, inspect both files after a clean stop and compare against a second copy from the SD card if corruption recurs.
+This change does not establish that the previously reported malformed transferred records are resolved. Verify the next OBD file after a clean stop.
