@@ -4,7 +4,7 @@
 #include "Schedule.h"
 namespace automatic {
 struct Config {
-  uint32_t bitrate=500000,startup=5000,duration=0,responseTimeout=1500;
+  uint32_t bitrate=500000,startup=5000,duration=0,responseTimeout=70;
   obd::Address address; Job jobs[64];size_t count=0;
 };
 inline bool hexId(const char *s,uint32_t &id){

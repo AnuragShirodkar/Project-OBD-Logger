@@ -6,6 +6,9 @@ int main(){
   assert(!durationReached(0,0,0xffffffffu));
   assert(!durationReached(60000,100,60099));assert(durationReached(60000,100,60100));
   assert(durationReached(1000,0xffffff00u,744));
+  RequestSpacing spacing;assert(spacing.ready(0));spacing.submitted(100);
+  assert(!spacing.ready(108));assert(spacing.ready(110));assert(spacing.ready(125));
+  spacing.submitted(0xfffffffau);assert(!spacing.ready(3));assert(spacing.ready(4));
   StopButton b;
   assert(!b.update(true,10));assert(!b.update(true,3009));assert(b.update(true,3010));
   assert(!b.update(true,9000)); // Holding must not repeat.

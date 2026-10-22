@@ -8,6 +8,7 @@
 #include "RunControl.h"
 #include "Discovery.h"
 automatic::Discovery discovery;
+automatic::RequestSpacing requestSpacing;
 bool discoveryStarted=false;
 #if !defined(USB_MTPDISK_SERIAL) || TEENSYDUINO < 160
 #error "Select Teensy 1.62.0 and USB Type: Serial + MTP Disk (Experimental)"
@@ -205,6 +206,15 @@ public:
   }
 } sink;
 obd::DiagnosticCore diagnostics(sink);
+bool startRequest(const uint8_t *p,size_t n){
+  uint32_t now=millis();if(!requestSpacing.ready(now))return false;
+  uint32_t expected[8];size_t count=discovery.expected(p,n,expected);
+  char detail[100];snprintf(detail,sizeof detail,"min_gap_ms=10 initial_timeout_ms=%lu expected_ecus=%u early_completion=%u",(unsigned long)config.responseTimeout,unsigned(count),unsigned(count>0||addressing.rx!=0));
+  note("REQUEST_TIMING",detail);
+  if(!diagnostics.start(p,n,addressing,now,expected,count))return false;
+  requestSpacing.submitted(now);return true;
+}
+
 void exposeSD(){
   if(fileTransferActive||!sdMounted)return;
   // Called only after the logger's SD handle is closed; MTP owns file access now.
@@ -389,17 +399,17 @@ void loop(){
       if(!closing&&!running&&!stopRequested&&uint32_t(now-setupAt)>=config.startup){
         if(!discoveryStarted){
           discoveryStarted=true;discovery.begin();
-          note("DISCOVERY_START","Modes 01/02(frame 00)/06/09; at most two attempts per range; polling unchanged after discovery");
+          note("DISCOVERY_START","Modes 01/02(frame 00)/06/09; at most two attempts per range; collecting expected-responder maps");
         }
         if(discovery.busy()){
-          if(!diagnostics.busy()&&captureRing.size()==0){
+          if(!diagnostics.busy()&&captureRing.size()==0&&requestSpacing.ready(millis())){
             uint8_t request[3];size_t length=discovery.request(request);++transaction;
             char b[96];snprintf(b,sizeof b,"mode=%02X range=%02X attempt=%u",request[0],request[1],discovery.attemptNumber());
             note("DISCOVERY_SEND",b);obd::reportRequest(reportLine,request,length,"");
-            if(!diagnostics.start(request,length,addressing,millis())){loggingFault=true;stopRun("Discovery transmission failed");}
+            if(!startRequest(request,length)){loggingFault=true;stopRun("Discovery transmission failed");}
           }
         }else {
-          char b[140];snprintf(b,sizeof b,"ECUs=%u overflow=%u; support inventory only; JSON requests not yet filtered",unsigned(discovery.count),unsigned(discovery.overflow));note("DISCOVERY_DONE",b);
+          char b[140];snprintf(b,sizeof b,"ECUs=%u overflow=%u; maps used for early completion; JSON requests not yet filtered",unsigned(discovery.count),unsigned(discovery.overflow));note("DISCOVERY_DONE",b);
           if(!discovery.count)note("DISCOVERY_UNKNOWN","No valid support maps; absence is not proof of unsupported data");
           for(size_t e=0;e<discovery.count;++e)for(size_t j=0;j<config.count;++j){
             const auto &job=config.jobs[j];auto support=discovery.support(e,job.bytes[0],job.length>1?job.bytes[1]:0,job.length>2?job.bytes[2]:0);
@@ -417,13 +427,13 @@ void loop(){
           if(!diagnostics.busy())stopRun(stopRequested?"User requested stop":"Configured duration finished");
         }else if(!diagnostics.busy()&&captureRing.size()==0&&sdGood&&logfile.size()+sdBatchUsed>=LOG_SEGMENT_BYTES){
           rotateLog();
-        }else if(!diagnostics.busy()&&captureRing.size()==0){
+        }else if(!diagnostics.busy()&&captureRing.size()==0&&requestSpacing.ready(millis())){
           if(mode4Requested){
             mode4Requested=false;++transaction;
             const uint8_t request[]={0x04};
             note("MANUAL_SEND","Mode 04 requested by pin 40 button; clears emissions diagnostic information");
             obd::reportRequest(reportLine,request,sizeof(request),"");
-            if(!diagnostics.start(request,sizeof(request),addressing,millis())){
+            if(!startRequest(request,sizeof(request))){
               loggingFault=true;stopRun("Manual Mode 04 transmission failed");
             }
           }else {
@@ -432,7 +442,7 @@ void loop(){
               char b[110];snprintf(b,sizeof b,"job=%u target_interval_ms=%lu skipped_total=%lu late_starts=%lu",
                 unsigned(index+1),(unsigned long)j.interval,(unsigned long)j.skipped,(unsigned long)j.late);
               note("SCHEDULE_SEND",b);obd::reportRequest(reportLine,j.bytes,j.length,"");
-              if(diagnostics.start(j.bytes,j.length,addressing,millis()))++j.sent;
+              if(startRequest(j.bytes,j.length))++j.sent;
               else {loggingFault=true;stopRun("Request transmission failed");}
             }
           }

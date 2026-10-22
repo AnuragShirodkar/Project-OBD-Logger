@@ -20,4 +20,5 @@ See teensy-obd-sd-logger/README.md for wiring, Arduino USB selection and the fir
 
 - [x] Step 1: bounded startup support discovery per ECU for Modes 01/02(frame 00)/06/09, with support inventory in logs.
 - [ ] Validate discovery support maps on the spare ECU; then apply per-ECU filtering to JSON requests.
-- [ ] Add response-driven polling and measure actual update rates and complete responses.
+- [x] Add response-driven polling with known responders, 10 ms minimum request spacing and a 70 ms default collection timeout.
+- [ ] Measure fast polling update rates, complete responses and drop/error counters on the spare ECU.

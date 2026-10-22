@@ -62,6 +62,16 @@ public:
     for(unsigned b=0;b<block;++b)if((e.known[m]&(1u<<b))&&!(e.maps[m][b]&1u))return Unsupported;
     return Unknown;
   }
+  // Early completion only when every discovered ECU has a known support answer.
+  // Unknown support / no bitmap / overflow keeps the full collection window.
+  size_t expected(const uint8_t *p,size_t n,uint32_t *ids)const {
+    if(active||overflow||!count||n<2)return 0;
+    size_t used=0;
+    for(size_t i=0;i<count;++i){auto status=support(i,p[0],p[1],n>2?p[2]:0);
+      if(status==Unknown||status==NotApplicable)return 0;
+      if(status==Supported)ids[used++]=ecus[i].id;
+    }return used;
+  }
   static const char *name(Support s){switch(s){case Supported:return "SUPPORTED";case Unsupported:return "UNSUPPORTED";case NotApplicable:return "NO_PID_BITMAP";default:return "UNKNOWN";}}
 };
 }

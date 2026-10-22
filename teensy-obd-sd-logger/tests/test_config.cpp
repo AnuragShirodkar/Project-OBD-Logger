@@ -6,7 +6,7 @@ bool parse(const char *text){JsonDocument d;assert(!deserializeJson(d,text));aut
 int main(){
   JsonDocument d;std::ifstream file("config.json");assert(!deserializeJson(d,file));
   automatic::Config c;const char *error;assert(automatic::parseConfig(d.as<JsonVariantConst>(),c,error));
-  assert(c.duration==0&&c.bitrate==500000&&c.count==30);
+  assert(c.duration==0&&c.bitrate==500000&&c.count==30&&c.responseTimeout==70);
   bool mode6=false;for(size_t i=0;i<c.count;++i){assert(c.jobs[i].bytes[0]!=4&&c.jobs[i].bytes[0]!=5&&c.jobs[i].bytes[0]!=8);if(c.jobs[i].bytes[0]==6)mode6=true;}assert(mode6);
   assert(parse(R"({"version":1,"requests":[{"request":"06 00","interval_ms":10}]})"));
   assert(!parse(R"({"version":1,"requests":[{"request":"06","interval_ms":10}]})"));

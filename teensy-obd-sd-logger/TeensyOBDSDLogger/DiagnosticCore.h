@@ -50,7 +50,7 @@ class DiagnosticCore {
     uint32_t id=0, last=0;
     uint16_t length=0, have=0;
     uint8_t next=1, block=0;
-    bool used=false, receiving=false, pending=false;
+    bool used=false, receiving=false, pending=false, complete=false;
     uint8_t bytes[4095];
   } states[8];
   Sink &sink;
@@ -59,7 +59,25 @@ class DiagnosticCore {
   size_t requestLen=0;
   uint32_t started=0;
   bool active=false, matched=false;
-  uint32_t responseWindow=1500;
+  uint32_t responseWindow=1500, lastResponse=0;
+  uint32_t expectedIds[8]={};size_t expectedCount=0;
+  bool allExpectedComplete()const {
+    if(!expectedCount)return false;
+    for(size_t i=0;i<expectedCount;++i){bool done=false;
+      for(const auto &s:states)if(s.used&&s.id==expectedIds[i]&&s.complete)done=true;
+      if(!done)return false;
+    }return true;
+  }
+  void endRequest(bool timeout){
+    if(timeout){
+      if(!matched)emit("NO_RESPONSE_TIMEOUT");
+      for(size_t i=0;i<expectedCount;++i){bool done=false;
+        for(const auto &s:states)if(s.used&&s.id==expectedIds[i]&&s.complete)done=true;
+        if(!done)emit("EXPECTED_RESPONSE_MISSING",expectedIds[i]);
+      }
+    }
+    active=false;emit("REQUEST_END");
+  }
   void emit(const char *kind, uint32_t id=0) { sink.event(kind,id,nullptr,0); }
   Rx *state(uint32_t id, uint32_t now) {
     for (auto &s:states) if(s.used && s.id==id) return &s;
@@ -81,14 +99,14 @@ class DiagnosticCore {
     s.receiving=false;s.pending=false;emit("FLOW_CONTROL_TX_FAILED",s.id);return false;
   }
   void complete(Rx &s,uint32_t now) {
-    s.receiving=false;s.last=now;
+    s.receiving=false;s.last=now;s.complete=false;
     if(!matches(s.bytes,s.length)) {emit("UNMATCHED_PAYLOAD",s.id);return;}
     matched=true;
     if(s.bytes[0]==0x7F) {
-      s.pending=s.bytes[2]==0x78;
+      s.pending=s.bytes[2]==0x78;s.complete=!s.pending;
       sink.event(s.pending?"RESPONSE_PENDING":"NEGATIVE",s.id,s.bytes,s.length);
     } else {
-      s.pending=false;sink.event("POSITIVE",s.id,s.bytes,s.length);
+      s.pending=false;s.complete=true;sink.event("POSITIVE",s.id,s.bytes,s.length);
     }
   }
 public:
@@ -96,12 +114,15 @@ public:
   bool busy() const {return active;}
   void setResponseWindow(uint32_t ms) { responseWindow=ms; }
   void cancel() {if(active)emit("CANCELLED");active=false;}
-  bool start(const uint8_t *p,size_t n,const Address &a,uint32_t now) {
+  bool start(const uint8_t *p,size_t n,const Address &a,uint32_t now,const uint32_t *expected=nullptr,size_t count=0) {
+    if(count>8||(count&&!expected))return false;
     if(active || !p || !n || n>7 || p[0]<1 || p[0]>10)return false;
     for(auto &s:states) {
-      s.used=s.receiving=s.pending=false;s.length=s.have=0;s.next=1;s.block=0;
+      s.used=s.receiving=s.pending=s.complete=false;s.length=s.have=0;s.next=1;s.block=0;
     }
-    address=a;memcpy(request,p,n);requestLen=n;started=now;matched=false;
+    expectedCount=count;for(size_t i=0;i<count;++i)expectedIds[i]=expected[i];
+    if(a.rx){expectedCount=1;expectedIds[0]=a.rx;}
+    lastResponse=now;address=a;memcpy(request,p,n);requestLen=n;started=now;matched=false;
     Frame f={};f.id=a.tx;f.extended=a.extended;f.len=8;f.data[0]=uint8_t(n);
     memcpy(f.data+1,p,n);
     if(!sink.send(f)){emit("REQUEST_TX_FAILED",a.tx);return false;}
@@ -114,6 +135,7 @@ public:
       size_t len=f.data[0]&15;
       if(!len || len>7 || len+1>f.len){emit("BAD_SINGLE_FRAME",f.id);return;}
       if(!matches(f.data+1,len))return;
+      lastResponse=now;
       Rx *s=state(f.id,now);if(!s)return;
       s->length=uint16_t(len);memcpy(s->bytes,f.data+1,len);complete(*s,now);
     } else if(pci==1) {
@@ -121,9 +143,10 @@ public:
       unsigned len=((f.data[0]&15u)<<8)|f.data[1];
       if(len<8 || len>4095){emit("BAD_ISOTP_LENGTH",f.id);return;}
       if(!matches(f.data+2,6))return;
+      lastResponse=now;
       Rx *s=state(f.id,now);if(!s)return;
       s->length=uint16_t(len);s->have=6;s->next=1;s->block=0;
-      s->receiving=true;s->pending=false;s->last=now;
+      s->receiving=true;s->pending=false;s->complete=false;s->last=now;
       memcpy(s->bytes,f.data+2,6);matched=true;flow(*s);
     } else if(pci==2) {
       Rx *s=nullptr;
@@ -145,15 +168,13 @@ public:
       if(s.receiving && uint32_t(now-s.last)>=1000){s.receiving=false;emit("ISOTP_TIMEOUT",s.id);}
       waiting|=s.receiving || s.pending;
     }
-    if(address.rx && matched && !waiting){
-      active=false;emit("REQUEST_END");
+    if(allExpectedComplete()&&!waiting){
+      endRequest(false);
     } else if(uint32_t(now-started)>=10000){
-      if(!matched)emit("NO_RESPONSE_TIMEOUT");
       for(auto &s:states)if(s.used && (s.pending || s.receiving))emit("RESPONSE_DEADLINE",s.id);
-      active=false;emit("REQUEST_END");
-    } else if(uint32_t(now-started)>=responseWindow && !waiting){
-      if(!matched)emit("NO_RESPONSE_TIMEOUT");
-      active=false;emit("REQUEST_END");
+      endRequest(true);
+    } else if(uint32_t(now-lastResponse)>=responseWindow && !waiting){
+      endRequest(true);
     }
   }
 };

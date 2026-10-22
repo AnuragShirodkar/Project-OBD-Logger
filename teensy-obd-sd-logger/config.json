@@ -6,7 +6,7 @@
   "rx_id": "0",
   "startup_delay_ms": 5000,
   "run_duration_ms": 0,
-  "response_timeout_ms": 1500,
+  "response_timeout_ms": 70,
   "requests": [
     {
       "request": "01 00",

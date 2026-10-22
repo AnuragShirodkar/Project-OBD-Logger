@@ -22,7 +22,11 @@ int main(){
   freeze[2]=1;assert(!d.receive(0x7e8,freeze,sizeof freeze));
   assert(d.support(1,2,12)==Discovery::Unknown&&d.support(0,3,0)==Discovery::NotApplicable);
   unsigned steps=0;while(d.busy()){d.finishTransaction();assert(++steps<20);}assert(d.count==2);
-  d.begin();for(unsigned i=0;i<8;++i)assert(d.receive(0x18daf100+i,a,sizeof a));
+  uint32_t expected[8];uint8_t rpm[]={1,12};
+  assert(d.expected(rpm,2,expected)==1&&expected[0]==0x7e8);
+  uint8_t freezeRequest[]={2,12,0};assert(d.expected(freezeRequest,3,expected)==0);
+  uint8_t dtc[]={3};assert(d.expected(dtc,1,expected)==0);
+  d.begin();assert(d.expected(rpm,2,expected)==0);for(unsigned i=0;i<8;++i)assert(d.receive(0x18daf100+i,a,sizeof a));
   assert(!d.receive(0x18daf108,a,sizeof a)&&d.overflow&&d.count==8);
   // All ranges terminate without wrapping past E0; verify PID FF bit mapping.
   d.begin();steps=0;while(d.busy()){
