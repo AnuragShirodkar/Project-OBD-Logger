@@ -11,6 +11,9 @@
 automatic::Discovery discovery;
 automatic::RequestSpacing requestSpacing;
 bool discoveryStarted=false;
+uint8_t traceRequestBytes[7]={};size_t traceRequestLength=0;
+uint32_t traceRequestAt=0;
+bool traceExchangeShown=false;
 #if !defined(USB_MTPDISK_SERIAL) || TEENSYDUINO < 160
 #error "Select Teensy 1.62.0 and USB Type: Serial + MTP Disk (Experimental)"
 #endif
@@ -103,8 +106,8 @@ void pumpConsole(){
 }
 void recordAt(uint32_t when,const char *kind,uint32_t id,const char *text){
   if(logCount==logCapacity){++logDrops;loggingFault=true;return;}
-  obd::formatEvent(logQueue[logHead].text,sizeof(logQueue[logHead].text),
-    when,transaction,configuredRate,kind,id,text);
+  if(id)snprintf(logQueue[logHead].text,sizeof(logQueue[logHead].text),"%7lu  %s  %03lX  %s\n",(unsigned long)when,kind,(unsigned long)id,text?text:"");
+  else snprintf(logQueue[logHead].text,sizeof(logQueue[logHead].text),"%7lu  %s  %s\n",(unsigned long)when,kind,text?text:"");
   logHead=(logHead+1)%logCapacity;++logCount;if(logCount>logPeak)logPeak=logCount;
 }
 void note(const char *kind,const char *text){recordAt(millis(),kind,0,text);}
@@ -172,6 +175,12 @@ const char *nrcName(uint8_t code){
     case 0x78:return "responsePending";default:return "unmapped NRC; retain raw value";
   }
 }
+void traceExchangeRequest(uint32_t now){
+  if(!traceRequestLength)return;
+  obd::traceRequest(traceWrite,now,traceRequestBytes,traceRequestLength);
+  obd::tracePayload(traceWrite,"TX",addressing.tx,traceRequestAt,traceRequestBytes,traceRequestLength);
+  traceExchangeShown=true;
+}
 class HardwareSink:public obd::Sink{
 public:
   bool send(const obd::Frame &f)override{
@@ -192,10 +201,19 @@ public:
   }
   void event(const char *kind,uint32_t id,const uint8_t *p,size_t n)override{
     if(n&&(!strcmp(kind,"POSITIVE")||!strcmp(kind,"NEGATIVE")||!strcmp(kind,"RESPONSE_PENDING")))indicateResponse();
-    if(!n)recordAt(millis(),kind,id,"");
+    if(!n){
+      if(!strcmp(kind,"REQUEST_END")){
+        if(!traceExchangeShown)traceExchangeRequest(millis());
+        traceWrite("\n");
+      }else {
+        if(!strcmp(kind,"NO_RESPONSE_TIMEOUT"))traceExchangeRequest(millis());
+        recordAt(millis(),kind,id,"");
+      }
+    }
     if(n){
+      traceExchangeRequest(millis());
       obd::tracePayload(traceWrite,"RX",id,millis(),p,n);
-      recordAt(millis(),kind,id,"Assembled diagnostic response above");
+      traceWrite("\n");
     }
     if(discovery.busy()&&n&&(!strcmp(kind,"POSITIVE")||!strcmp(kind,"NEGATIVE")||!strcmp(kind,"RESPONSE_PENDING")))
       if(!discovery.observe(id))recordAt(millis(),"DISCOVERY_OVERFLOW",id,"ECU inventory capacity exceeded");
@@ -217,10 +235,9 @@ bool startRequest(const uint8_t *p,size_t n){
   uint32_t expected[8];size_t count=discovery.expected(p,n,expected);
   char detail[100];snprintf(detail,sizeof detail,"min_gap_ms=10 initial_timeout_ms=%lu expected_ecus=%u early_completion=%u",(unsigned long)config.responseTimeout,unsigned(count),unsigned(count>0||addressing.rx!=0));
   note("REQUEST_TIMING",detail);
+  memcpy(traceRequestBytes,p,n);traceRequestLength=n;traceRequestAt=now;traceExchangeShown=false;
   if(!diagnostics.start(p,n,addressing,now,expected,count))return false;
   requestSpacing.submitted(now);
-  obd::traceRequest(traceWrite,now,p,n);
-  obd::tracePayload(traceWrite,"TX",addressing.tx,now,p,n);
   return true;
 }
 
@@ -277,7 +294,7 @@ void setup(){
     sdGood=logfile.write((const uint8_t*)header,strlen(header))==strlen(header);
   }
   if(!sdGood)queueConsole("SD_INIT_FAILED; requests disabled; use FAT32 SD in Teensy's built-in slot\n");
-  note("TRACE_FORMAT","Silver-style layout; timestamps=uptime ms; TX-CAN=mailbox submission, not wire acknowledgement; CAPTURE_META retains RX sequence/us");
+  note("LOG_INFO","Time=uptime milliseconds; TX-CAN=mailbox submission");
   note("BOOT","Teensy 4.1 CAN1 TX22 RX23; STB grounded; timestamps=uptime milliseconds");
   if(sdGood){
     File file=SD.open("config.json",FILE_READ);
@@ -375,8 +392,7 @@ void loop(){
       obd::Frame f={};f.id=c.frame.id;f.extended=c.frame.flags.extended;f.len=c.frame.len;
       memcpy(f.data,c.frame.buf,8);
       obd::traceCan(traceWrite,"RX",f.extended,f.id,c.ms,f.data,f.len,c.frame.flags.remote);
-      char details[100];snprintf(details,sizeof details,"seq=%lu us=%lu",(unsigned long)c.sequence,(unsigned long)c.us);
-      recordAt(c.ms,"CAPTURE_META",f.id,details);++captureDrained;
+      ++captureDrained;
       if(c.frame.flags.overrun){note("CAN_OVERRUN","Hardware receive overrun");loggingFault=true;}
       if(!closing&&!c.frame.flags.remote)diagnostics.receive(f,c.ms);
     }
