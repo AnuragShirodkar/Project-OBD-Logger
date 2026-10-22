@@ -2,6 +2,7 @@
 #include <SD.h>
 #include "DiagnosticCore.h"
 #include "LogReport.h"
+#include "TraceFormat.h"
 #include "Config.h"
 #include "CaptureRing.h"
 #include <new>
@@ -76,6 +77,13 @@ void reportLine(const char *text){
   logHead=(logHead+1)%logCapacity;++logCount;if(logCount>logPeak)logPeak=logCount;
 }
 
+// Trace fragments include their own newlines; complete payloads stay on one line.
+void traceWrite(const char *text){
+  if(logCount==logCapacity){++logDrops;loggingFault=true;return;}
+  snprintf(logQueue[logHead].text,sizeof(logQueue[logHead].text),"%s",text);
+  logHead=(logHead+1)%logCapacity;++logCount;if(logCount>logPeak)logPeak=logCount;
+}
+
 void queueConsole(const char *s) {
   size_t n=strlen(s);
   if(!Serial)return;
@@ -101,9 +109,8 @@ void recordAt(uint32_t when,const char *kind,uint32_t id,const char *text){
 }
 void note(const char *kind,const char *text){recordAt(millis(),kind,0,text);}
 void raw(const char *kind,const obd::Frame &f,uint32_t when){
-  char b[72];int pos=snprintf(b,sizeof b,"%s DLC=%u",f.extended?"EXT":"STD",f.len);
-  for(unsigned i=0;i<f.len&&i<8;++i)pos+=snprintf(b+pos,sizeof(b)-pos," %02X",f.data[i]);
-  recordAt(when,kind,f.id,b);
+  (void)kind;
+  obd::traceCan(traceWrite,"TX",f.extended,f.id,when,f.data,f.len);
 }
 void writeBatch(){
   if(!sdBatchUsed)return;
@@ -186,16 +193,15 @@ public:
   void event(const char *kind,uint32_t id,const uint8_t *p,size_t n)override{
     if(n&&(!strcmp(kind,"POSITIVE")||!strcmp(kind,"NEGATIVE")||!strcmp(kind,"RESPONSE_PENDING")))indicateResponse();
     if(!n)recordAt(millis(),kind,id,"");
-    for(size_t offset=0;offset<n;offset+=24){
-      char b[110];int pos=snprintf(b,sizeof b,"len=%u offset=%u",(unsigned)n,(unsigned)offset);
-      for(size_t i=offset;i<n&&i<offset+24;++i)pos+=snprintf(b+pos,sizeof(b)-pos," %02X",p[i]);
-      recordAt(millis(),kind,id,b);
+    if(n){
+      obd::tracePayload(traceWrite,"RX",id,millis(),p,n);
+      recordAt(millis(),kind,id,"Assembled diagnostic response above");
     }
     if(discovery.busy()&&n&&(!strcmp(kind,"POSITIVE")||!strcmp(kind,"NEGATIVE")||!strcmp(kind,"RESPONSE_PENDING")))
       if(!discovery.observe(id))recordAt(millis(),"DISCOVERY_OVERFLOW",id,"ECU inventory capacity exceeded");
     if(n>=3 && p[0]==0x7F)recordAt(millis(),"NRC",id,nrcName(p[2]));
     if(!strcmp(kind,"POSITIVE")){
-      obd::reportPositive(reportLine,id,p,n);
+
       if(discovery.busy()){
         if(discovery.receive(id,p,n))recordAt(millis(),"DISCOVERY_MAP",id,"Validated support bitmap stored");
         else recordAt(millis(),"DISCOVERY_INVALID",id,"Support bitmap not stored; malformed or ECU capacity exceeded");
@@ -212,7 +218,10 @@ bool startRequest(const uint8_t *p,size_t n){
   char detail[100];snprintf(detail,sizeof detail,"min_gap_ms=10 initial_timeout_ms=%lu expected_ecus=%u early_completion=%u",(unsigned long)config.responseTimeout,unsigned(count),unsigned(count>0||addressing.rx!=0));
   note("REQUEST_TIMING",detail);
   if(!diagnostics.start(p,n,addressing,now,expected,count))return false;
-  requestSpacing.submitted(now);return true;
+  requestSpacing.submitted(now);
+  obd::traceRequest(traceWrite,now,p,n);
+  obd::tracePayload(traceWrite,"TX",addressing.tx,now,p,n);
+  return true;
 }
 
 void exposeSD(){
@@ -268,6 +277,7 @@ void setup(){
     sdGood=logfile.write((const uint8_t*)header,strlen(header))==strlen(header);
   }
   if(!sdGood)queueConsole("SD_INIT_FAILED; requests disabled; use FAT32 SD in Teensy's built-in slot\n");
+  note("TRACE_FORMAT","Silver-style layout; timestamps=uptime ms; TX-CAN=mailbox submission, not wire acknowledgement; CAPTURE_META retains RX sequence/us");
   note("BOOT","Teensy 4.1 CAN1 TX22 RX23; STB grounded; timestamps=uptime milliseconds");
   if(sdGood){
     File file=SD.open("config.json",FILE_READ);
@@ -364,10 +374,9 @@ void loop(){
     for(unsigned i=0;i<128&&logCount<logCapacity-512&&popCapture(c);++i){
       obd::Frame f={};f.id=c.frame.id;f.extended=c.frame.flags.extended;f.len=c.frame.len;
       memcpy(f.data,c.frame.buf,8);
-      char details[130];int pos=snprintf(details,sizeof details,"seq=%lu us=%lu %s DLC=%u",
-        (unsigned long)c.sequence,(unsigned long)c.us,f.extended?"EXT":"STD",f.len);
-      if(!c.frame.flags.remote)for(unsigned j=0;j<f.len&&j<8;++j)pos+=snprintf(details+pos,sizeof(details)-pos," %02X",f.data[j]);
-      recordAt(c.ms,c.frame.flags.remote?"RX_REMOTE":"RX",f.id,details);++captureDrained;
+      obd::traceCan(traceWrite,"RX",f.extended,f.id,c.ms,f.data,f.len,c.frame.flags.remote);
+      char details[100];snprintf(details,sizeof details,"seq=%lu us=%lu",(unsigned long)c.sequence,(unsigned long)c.us);
+      recordAt(c.ms,"CAPTURE_META",f.id,details);++captureDrained;
       if(c.frame.flags.overrun){note("CAN_OVERRUN","Hardware receive overrun");loggingFault=true;}
       if(!closing&&!c.frame.flags.remote)diagnostics.receive(f,c.ms);
     }
@@ -405,7 +414,7 @@ void loop(){
           if(!diagnostics.busy()&&captureRing.size()==0&&requestSpacing.ready(millis())){
             uint8_t request[3];size_t length=discovery.request(request);++transaction;
             char b[96];snprintf(b,sizeof b,"mode=%02X range=%02X attempt=%u",request[0],request[1],discovery.attemptNumber());
-            note("DISCOVERY_SEND",b);obd::reportRequest(reportLine,request,length,"");
+            note("DISCOVERY_SEND",b);
             if(!startRequest(request,length)){loggingFault=true;stopRun("Discovery transmission failed");}
           }
         }else {
@@ -432,7 +441,7 @@ void loop(){
             mode4Requested=false;++transaction;
             const uint8_t request[]={0x04};
             note("MANUAL_SEND","Mode 04 requested by pin 40 button; clears emissions diagnostic information");
-            obd::reportRequest(reportLine,request,sizeof(request),"");
+
             if(!startRequest(request,sizeof(request))){
               loggingFault=true;stopRun("Manual Mode 04 transmission failed");
             }
@@ -441,7 +450,7 @@ void loop(){
             if(index>=0){auto &j=config.jobs[index];++transaction;
               char b[110];snprintf(b,sizeof b,"job=%u target_interval_ms=%lu skipped_total=%lu late_starts=%lu",
                 unsigned(index+1),(unsigned long)j.interval,(unsigned long)j.skipped,(unsigned long)j.late);
-              note("SCHEDULE_SEND",b);obd::reportRequest(reportLine,j.bytes,j.length,"");
+              note("SCHEDULE_SEND",b);
               if(startRequest(j.bytes,j.length))++j.sent;
               else {loggingFault=true;stopRun("Request transmission failed");}
             }

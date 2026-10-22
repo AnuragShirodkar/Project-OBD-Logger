@@ -26,6 +26,10 @@ try {
   if ($LASTEXITCODE) { throw 'Discovery test compilation failed' }
   & ./build/test_discovery.exe
   if ($LASTEXITCODE) { throw 'Discovery tests failed' }
+  & g++ -std=c++11 -Wall -Wextra -Werror tests/test_trace.cpp -o build/test_trace.exe
+  if ($LASTEXITCODE) { throw 'Trace test compilation failed' }
+  & ./build/test_trace.exe
+  if ($LASTEXITCODE) { throw 'Trace tests failed' }
   & $ArduinoCli compile --fqbn teensy:avr:teensy41:usb=serialmtp --build-path build/teensy41 TeensyOBDSDLogger
   if ($LASTEXITCODE) { throw 'Teensy compilation failed' }
 } finally { Pop-Location }
