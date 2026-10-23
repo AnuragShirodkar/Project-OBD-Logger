@@ -9,6 +9,7 @@
 #include "RunControl.h"
 #include "Discovery.h"
 #include "Mode4Feedback.h"
+#include "LogRotation.h"
 automatic::Mode4Feedback mode4Feedback;
 constexpr unsigned READY_LED_PIN=4, RECORD_LED_PIN=5, USB_LED_PIN=6, ALERT_LED_PIN=7;
 automatic::Discovery discovery;
@@ -28,7 +29,6 @@ uint32_t responseLedAt=0;
 bool responseLedSeen=false;
 constexpr unsigned STOP_BUTTON_PIN=35;
 constexpr unsigned MODE4_BUTTON_PIN=40;
-constexpr uint64_t LOG_SEGMENT_BYTES=128ull*1024*1024;
 bool stopRequested=false,sdMounted=false,fileTransferActive=false;
 unsigned nextLogIndex=0;
 automatic::StopButton stopButton(3000);
@@ -123,6 +123,21 @@ void raw(const char *kind,const obd::Frame &f,uint32_t when){
   (void)kind;
   obd::traceCan(exchangeWrite,"TX",f.extended,f.id,when,f.data,f.len);
 }
+bool openLogSegment();
+bool writeHeaders();
+// Rotate before a batch would cross the cap, including during a long exchange.
+// Capture interrupts remain enabled; queued data is written to the new segment.
+void prepareLogBatch(size_t pending){
+  if(!sdGood||!pending||!automatic::needsLogRotation(obdfile.size(),pending))return;
+  obdfile.flush();
+  if(obdfile.getWriteError()){
+    ++sdFailures;sdGood=false;loggingFault=true;queueConsole("LOG_ROTATION_FLUSH_FAILED\n");return;
+  }
+  obdfile.close();sdGood=openLogSegment();
+  if(sdGood)sdGood=writeHeaders();
+  if(!sdGood){++sdFailures;loggingFault=true;queueConsole("LOG_ROTATION_FAILED\n");return;}
+  queueConsole("LOG_SEGMENT_START ");queueConsole(obdName);queueConsole("\n");
+}
 void writeFileBatch(File &file,char *buffer,size_t &used){
   if(!used)return;
   if(sdGood){
@@ -132,7 +147,7 @@ void writeFileBatch(File &file,char *buffer,size_t &used){
   }else sdBytesUnwritten+=used;
   used=0;
 }
-void writeBatch(){writeFileBatch(obdfile,obdBatch,obdBatchUsed);}
+void writeBatch(){prepareLogBatch(obdBatchUsed);writeFileBatch(obdfile,obdBatch,obdBatchUsed);}
 bool fileWriteError(){return obdfile.getWriteError();}
 void flushFiles(){obdfile.flush();}
 void closeFiles(){obdfile.close();}
@@ -308,16 +323,6 @@ void pollStop(){
       length=0;overflow=false;
     }else if(length<sizeof(command)-1)command[length++]=char(c);else overflow=true;
   }
-}
-void rotateLog(){
-  // Capture IRQ stays enabled while text is drained and the file is rotated.
-  note("SEGMENT_END","128 MiB rotation; capture sequence continues in next OBD file");
-  while(logCount)pumpLog();writeBatch();flushFiles();
-  if(fileWriteError()){sdGood=false;loggingFault=true;++sdFailures;return;}
-  closeFiles();sdGood=openLogSegment();
-  if(!sdGood){loggingFault=true;++sdFailures;queueConsole("LOG_ROTATION_FAILED\n");return;}
-  if(!writeHeaders()){sdGood=false;loggingFault=true;++sdFailures;return;}
-  note("SEGMENT_START","Continuation of current run; counters and receive sequence are not reset");
 }
 void setup(){
   Serial.begin(115200);
@@ -502,8 +507,7 @@ void loop(){
         if(stopRequested||automatic::durationReached(config.duration,runStart,now)){
           // Stop scheduling at the duration boundary; let the active exchange finish (up to 10 s).
           if(!diagnostics.busy())stopRun(stopRequested?"User requested stop":"Configured duration finished");
-        }else if(!diagnostics.busy()&&captureRing.size()==0&&sdGood&&obdfile.size()+obdBatchUsed>=LOG_SEGMENT_BYTES){
-          rotateLog();
+
         }else if(!diagnostics.busy()&&captureRing.size()==0&&requestSpacing.ready(millis())){
           if(mode4Requested){
             mode4Requested=false;++transaction;

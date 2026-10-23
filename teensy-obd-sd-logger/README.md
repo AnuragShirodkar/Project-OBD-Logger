@@ -30,7 +30,7 @@ Mode 04 clears emissions-related diagnostic information, including stored codes 
 
 ## Long runs
 
-Each text log rotates near **128 MiB** into the next unused OBDxxxx.TXT file. Rotation occurs between diagnostic transactions; capture interrupts continue and the PSRAM queue absorbs the file-write pause. Sequence numbers and counters continue across segments. Each new segment has the standard header plus a SEGMENT_START record; combine all segments when checking receive continuity. Files are never overwritten. Exhausting the card or available names stops the logger; it does not delete old logs. The run is continuous, not unlimited storage.
+Each text log is capped at **250 MB (250,000,000 bytes, including the header)**. Before a buffered write would exceed the limit, the logger flushes/closes the current file and opens the next unused OBDxxxx.TXT file. A segment may therefore finish a few kilobytes below the limit. Capture interrupts continue and PSRAM buffers incoming frames during rotation. Counters continue across segments, and each new file gets the standard header. Rotation can occur during an exchange (or a long text payload), so read consecutive files in order for complete transactions. Files are never overwritten. A flush/open/header/write failure stops logging; existing files are retained. Exhausting storage or all 10,000 filenames also stops logging.
 
 The old manual firmware and installed board libraries are not modified. The local MTP responder is tied to the 1.62.0 core API; revalidate when upgrading Teensy support.
 
@@ -101,7 +101,7 @@ Use the updated config.json: 500 kbit/s, 30 jobs, five-second diagnostic delay, 
 
 ## Validation still requiring hardware
 
-Host tests cover zero/nonzero duration, held-button timing and timer wrap in addition to protocol, JSON and capture tests. The sketch builds in Serial + MTP mode. Hardware checks remain: Explorer naming/enumeration, copy a log and compare its hash, upload config and restart, unplug/replug USB, stop while a multi-frame reply is active, file-access-only boot, sustained logging beyond 60 seconds, 128 MiB rotation, and SD-full handling. Capture and file transfer intentionally run in separate modes, so simultaneous transfer performance is not claimed.
+Host tests cover zero/nonzero duration, held-button timing and timer wrap in addition to protocol, JSON and capture tests. The sketch builds in Serial + MTP mode. Hardware checks remain: Explorer naming/enumeration, copy a log and compare its hash, upload config and restart, unplug/replug USB, stop while a multi-frame reply is active, file-access-only boot, sustained logging beyond 60 seconds, 250 MB rotation, and SD-full handling. Capture and file transfer intentionally run in separate modes, so simultaneous transfer performance is not claimed.
 
 ## Expanded request configuration
 
@@ -139,7 +139,7 @@ The log contains no reference-tool branding. New output uses seven-column event 
 
 Each recording now creates only **OBDxxxx.TXT**, with the requested diagnostic exchange layout. AUTO files are no longer created; existing files on the SD card are left untouched. Full unrelated bus traffic is intentionally no longer saved. The logger still receives/processes it for controller operation and capture health, so captured-frame counters exceed the diagnostic RX lines exported to the file.
 
-The sole log includes diagnostic requests, flow-control frames, response-address frames during active transactions, assembled responses, timeouts, negative-response explanations, button actions, faults and final health counters. Periodic scheduler/debug records go to Serial Monitor only. Stop flushes and closes the OBD file before USB access. Rotation creates a new unused OBD filename near 128 MiB. No JSON change is required.
+The sole log includes diagnostic requests, flow-control frames, response-address frames during active transactions, assembled responses, timeouts, negative-response explanations, button actions, faults and final health counters. Periodic scheduler/debug records go to Serial Monitor only. Stop flushes and closes the OBD file before USB access. Rotation creates a new unused OBD filename before a write would exceed 250 MB. No JSON change is required.
 
 This change does not establish that the previously reported malformed transferred records are resolved. Verify the next OBD file after a clean stop.
 
