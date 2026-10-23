@@ -38,11 +38,15 @@ CAN1 uses Teensy TX22/RX23 with the TLE9371 transceiver, STB grounded as before.
 
 ## Demo requests
 
-- Mode 01: 00, 01, 04, 05, 0B, 0C, 0D, 0F, 10, 11, 1F, 2F, 42.
-- Mode 02: 00, 02, 04, 05, 0C, 0D, each with freeze-frame number 00.
+Expanded from identical support bitmaps in both supplied Bolero logs (ECU 7E8). Original entries remain; discovery filters unsupported entries at each boot.
+
+- Mode 01: 00, 01, 04, 05, 0B, 0C, 0D, 0F, 10, 11, 1C, 1F, 21, 23, 2F, 33, 42, 49, 88.
+- Mode 02: 00, 02, 04, 05, 0B, 0C, 0D, 0F, 10, 11, 1F, 21, 23, 33, 42, 49, each with freeze-frame number 00.
 - Modes 03, 07 and 0A: no PID parameters.
-- Mode 06: 00 (supported monitor IDs only).
+- Mode 06: 00, 21, 31, 85, 98, B2 (base support query plus five advertised monitor IDs).
 - Mode 09: 00, 02, 04, 06, 08, 0A, 0B.
+
+There are 51 entries: 19 Mode 01, 16 Mode 02, six Mode 06, seven Mode 09, and three DTC services. Higher support-range queries are already sent by discovery and are not duplicated as periodic jobs.
 
 Mode 09 entries target 1000 ms; all other entries retain the 10 ms target. Availability depends on the ECU; timeouts and negative responses are retained.
 
@@ -105,9 +109,9 @@ Host tests cover zero/nonzero duration, held-button timing and timer wrap in add
 
 ## Expanded request configuration
 
-The supplied config.json now contains 30 explicit requests: 13 Mode 01 entries, six Mode 02 entries (frame 00), Modes 03/07/0A, Mode 06 supported-MID request 06 00, and seven Mode 09 entries. Mode 04 remains button-only; Modes 05/08 remain excluded. Upload the matching firmware before using this JSON: the request capacity is now 64 and Mode 06 accepts a one-byte MID.
+The supplied config.json contains 51 explicit requests, including all data PIDs and monitor IDs advertised in the tested Bolero ECU's support maps, plus the original candidate entries. Mode 04 remains button-only; Modes 05/08 remain excluded. Existing firmware supports up to 64 requests; this expansion needs only an SD config update and restart, not a firmware upload.
 
-This is a candidate polling list. Startup discovery follows advertised support ranges and excludes requests confirmed unsupported by every discovered ECU. It does not add measurement requests automatically. Unknown-support requests remain enabled and can time out. Mode 06 currently requests only the first support bitmap, not individual monitor results. Mode 09 uses 1000 ms targets; other entries retain the existing 10 ms target. Actual cycle time depends on response completion, collection windows, timeouts and the configured per-job intervals. There is no guaranteed 10 ms update rate for each PID.
+This is a candidate polling list. Startup discovery follows advertised support ranges and excludes requests confirmed unsupported by every discovered ECU. It does not add measurement requests automatically. Unknown-support requests remain enabled and can time out. Mode 06 now requests five advertised monitor results as well as the first support bitmap. Their returned data has not yet been validated. Mode 09 uses 1000 ms targets; other entries retain the existing 10 ms target. Actual cycle time depends on response completion, collection windows, timeouts and the configured per-job intervals. There is no guaranteed 10 ms update rate for each PID.
 
 ## Step 1: startup support discovery
 
@@ -178,3 +182,10 @@ After each boot's discovery, every configured request receives one `PID_FILTER` 
 Skipped jobs are never scheduled and do not accrue missed-deadline counters. Final SCHEDULE lines include `enabled=0` for these jobs. Unknown requests still use the normal response timeout. No request spacing or response deadlines change.
 
 The inventory covers responders observed at startup, not ECUs that were silent or appear later. Restart after changing the bench ECU; a full vehicle and late-joining ECUs need separate validation. Current hardware evidence is from a spare ECU only. For the next bench run, compare the filter summary, skipped job submission counts (must be zero), timeout count and per-PID update interval with the previous log. No JSON change is required; upload the updated firmware.
+
+
+### Expanded Bolero request list: validation limits
+
+This update adds 21 requests: six live-data PIDs, ten freeze-frame PIDs, and five monitor IDs. The new entries are advertised by the tested ECU, not yet proven to return usable measurements. Earlier freeze-frame rejections and Mode 0A rejection remain possible; response-aware backoff is not implemented. PID 01 11 still needs validation due to the observed payload-length anomaly. Original candidates 01 2F, 09 08, 09 0A and 09 0B remain for other ECUs and should be filtered out with the same Bolero maps, leaving 47 enabled requests, not 47 guaranteed successful measurements.
+
+Copy config.json through USB file-access mode and restart. More enabled jobs generally lengthen individual PID polling cycles; the 10 ms target is not a guaranteed per-PID update rate. Review the next parked-vehicle test log to validate the new replies. No other vehicle's support is assumed.

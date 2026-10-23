@@ -49,7 +49,19 @@
       "interval_ms": 10
     },
     {
+      "request": "01 1C",
+      "interval_ms": 10
+    },
+    {
       "request": "01 1F",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 21",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 23",
       "interval_ms": 10
     },
     {
@@ -57,7 +69,19 @@
       "interval_ms": 10
     },
     {
+      "request": "01 33",
+      "interval_ms": 10
+    },
+    {
       "request": "01 42",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 49",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 88",
       "interval_ms": 10
     },
     {
@@ -77,6 +101,10 @@
       "interval_ms": 10
     },
     {
+      "request": "02 0B 00",
+      "interval_ms": 10
+    },
+    {
       "request": "02 0C 00",
       "interval_ms": 10
     },
@@ -85,11 +113,67 @@
       "interval_ms": 10
     },
     {
+      "request": "02 0F 00",
+      "interval_ms": 10
+    },
+    {
+      "request": "02 10 00",
+      "interval_ms": 10
+    },
+    {
+      "request": "02 11 00",
+      "interval_ms": 10
+    },
+    {
+      "request": "02 1F 00",
+      "interval_ms": 10
+    },
+    {
+      "request": "02 21 00",
+      "interval_ms": 10
+    },
+    {
+      "request": "02 23 00",
+      "interval_ms": 10
+    },
+    {
+      "request": "02 33 00",
+      "interval_ms": 10
+    },
+    {
+      "request": "02 42 00",
+      "interval_ms": 10
+    },
+    {
+      "request": "02 49 00",
+      "interval_ms": 10
+    },
+    {
       "request": "03",
       "interval_ms": 10
     },
     {
       "request": "06 00",
+      "interval_ms": 10
+    },
+    {
+      "request": "06 21",
+      "interval_ms": 10
+    },
+    {
+      "request": "06 31",
+      "interval_ms": 10
+    },
+    {
+      "request": "06 85",
+      "interval_ms": 10
+    },
+    {
+      "request": "06 98",
+      "interval_ms": 10
+    },
+    {
+      "request": "06 B2",
       "interval_ms": 10
     },
     {
