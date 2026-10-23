@@ -107,7 +107,7 @@ Host tests cover zero/nonzero duration, held-button timing and timer wrap in add
 
 The supplied config.json now contains 30 explicit requests: 13 Mode 01 entries, six Mode 02 entries (frame 00), Modes 03/07/0A, Mode 06 supported-MID request 06 00, and seven Mode 09 entries. Mode 04 remains button-only; Modes 05/08 remain excluded. Upload the matching firmware before using this JSON: the request capacity is now 64 and Mode 06 accepts a one-byte MID.
 
-This is a candidate polling list. Startup discovery follows advertised support ranges, but does not yet remove unsupported JSON entries or add measurement requests automatically. Unsupported requests can time out. Mode 06 currently requests only the first support bitmap, not individual monitor results. Mode 09 uses 1000 ms targets; other entries retain the existing 10 ms target. Actual cycle time depends on response completion, collection windows, timeouts and the configured per-job intervals. There is no guaranteed 10 ms update rate for each PID.
+This is a candidate polling list. Startup discovery follows advertised support ranges and excludes requests confirmed unsupported by every discovered ECU. It does not add measurement requests automatically. Unknown-support requests remain enabled and can time out. Mode 06 currently requests only the first support bitmap, not individual monitor results. Mode 09 uses 1000 ms targets; other entries retain the existing 10 ms target. Actual cycle time depends on response completion, collection windows, timeouts and the configured per-job intervals. There is no guaranteed 10 ms update rate for each PID.
 
 ## Step 1: startup support discovery
 
@@ -117,7 +117,7 @@ Base queries are sent twice to allow a missed response to be recovered. Addition
 
 Logs contain DISCOVERY_START, DISCOVERY_SEND (mode/range/attempt), DISCOVERY_MAP and DISCOVERY_DONE, followed by DISCOVERY_SUPPORT for each JSON job and ECU. The support status is SUPPORTED, UNSUPPORTED, UNKNOWN, or NO_PID_BITMAP (Modes 03/07/0A). Nonzero freeze-frame numbers remain UNKNOWN in this first implementation. Full received payloads remain in the existing raw and diagnostic records.
 
-Discovery supplies the expected-responder sets for faster polling; unsupported JSON requests are still retained until the separate filtering step. Discovery runs on every restart and adds startup time (at least 560 ms for eight base transactions at the default 70 ms window, plus response collection extensions and advertised ranges). Timed polling duration starts after discovery. A no-response discovery completes with unknown results unless a CAN/SD fault stops the run.
+Discovery supplies expected-responder sets for faster polling and filters the configured schedule before polling starts. Discovery runs on every restart and adds startup time (at least 560 ms for eight base transactions at the default 70 ms window, plus response collection extensions and advertised ranges). Timed polling duration starts after discovery. A no-response discovery completes with unknown results unless a CAN/SD fault stops the run.
 
 Pin 35 / USB stop works during discovery and waits for an active transaction before closing the log. Mode 04 waits until discovery completes before transmission. Holding pin 35 at boot still bypasses CAN and enters USB file access directly. For the bench check, power the ECU first, then Teensy, wait for DISCOVERY_DONE and RUN_START, stop normally, and inspect the per-ECU support summary. Hardware validation is still pending.
 
@@ -164,3 +164,17 @@ Hold the Mode 04 button on pin 40 to GND for two seconds. Yellow blinks while th
 Success requires an exact assembled `44` reply from every ECU discovered at startup (or the configured physical response ID), with no negative reply or transport error. Discovery overflow or an empty inventory cannot produce a success indication. This conservative inventory can include ECUs that do not support clearing: red means **not confirmed for all expected ECUs**, not that none cleared. Pending `7F 04 78` is not a rejection; the existing diagnostic deadlines still apply. Existing response timing is unchanged.
 
 The log and Serial Monitor record `MODE04_ECU` with each responder ID and response type, followed by `MODE04_CONFIRMED` or `MODE04_NOT_CONFIRMED`. The normal RX lines retain the reply bytes/NRC. Confirmation means the ECU accepted the clearing request, not that the underlying fault was repaired. Validate all four LEDs and an accepted/rejected clear on the spare ECU before deployment.
+
+
+### Supported-PID filtering (spare-ECU bench validation)
+
+After each boot's discovery, every configured request receives one `PID_FILTER` decision in the OBD log and Serial Monitor. `PID_FILTER_SUMMARY` reports configured, enabled and skipped counts. JSON entries and job numbers remain unchanged; this is an in-memory schedule filter, not an edit of the SD configuration.
+
+- Keep a request when any discovered ECU advertises support.
+- Skip only when every discovered ECU has explicit unsupported evidence from a valid support bitmap (including a known terminal range).
+- Keep requests with missing/incomplete maps, no discovered ECU, inventory overflow, or an unscanned Mode 02 freeze frame. A timeout or negative response alone is never unsupported evidence.
+- Modes 03, 07 and 0A have no PID bitmap and remain enabled. Manual Mode 04 is unaffected.
+
+Skipped jobs are never scheduled and do not accrue missed-deadline counters. Final SCHEDULE lines include `enabled=0` for these jobs. Unknown requests still use the normal response timeout. No request spacing or response deadlines change.
+
+The inventory covers responders observed at startup, not ECUs that were silent or appear later. Restart after changing the bench ECU; a full vehicle and late-joining ECUs need separate validation. Current hardware evidence is from a spare ECU only. For the next bench run, compare the filter summary, skipped job submission counts (must be zero), timeout count and per-PID update interval with the previous log. No JSON change is required; upload the updated firmware.

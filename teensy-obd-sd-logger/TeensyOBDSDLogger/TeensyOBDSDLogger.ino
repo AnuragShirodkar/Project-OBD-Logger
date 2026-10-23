@@ -115,7 +115,7 @@ void recordAt(uint32_t when,const char *kind,uint32_t id,const char *text){
   else snprintf(line,sizeof line,"%7lu  %s  %s\n",(unsigned long)when,kind,text?text:"");
   // Keep the readable trace free of periodic scheduler/debug records.
   // Preserve faults, button actions, and final health counters in the sole log.
-  if(closing||strstr(kind,"ERROR")||strstr(kind,"FAILED")||strstr(kind,"OVERFLOW")||strstr(kind,"OVERRUN")||!strcmp(kind,"BUS_OFF")||!strncmp(kind,"MODE04_",7))obdWrite(line);
+  if(closing||strstr(kind,"ERROR")||strstr(kind,"FAILED")||strstr(kind,"OVERFLOW")||strstr(kind,"OVERRUN")||!strcmp(kind,"BUS_OFF")||!strncmp(kind,"MODE04_",7)||!strncmp(kind,"PID_FILTER",10))obdWrite(line);
   else queueConsole(line);
 }
 void note(const char *kind,const char *text){recordAt(millis(),kind,0,text);}
@@ -406,8 +406,8 @@ void summary(){
     logPeak,logCapacity,(unsigned long)sdWrites,(unsigned long)sdWriteMaxUs,(unsigned long)sdFailures,(unsigned long)sdBytesUnwritten);
   note("SD_STATUS",b);
   for(size_t i=0;i<config.count;++i){auto &j=config.jobs[i];
-    snprintf(b,sizeof b,"job=%u mode=%02X interval_ms=%lu submitted=%lu skipped_periods=%lu late_starts=%lu max_lateness_ms=%lu",
-      unsigned(i+1),j.bytes[0],(unsigned long)j.interval,(unsigned long)j.sent,(unsigned long)j.skipped,(unsigned long)j.late,(unsigned long)j.maxLate);
+    snprintf(b,sizeof b,"job=%u mode=%02X enabled=%u interval_ms=%lu submitted=%lu skipped_periods=%lu late_starts=%lu max_lateness_ms=%lu",
+      unsigned(i+1),j.bytes[0],unsigned(j.enabled),(unsigned long)j.interval,(unsigned long)j.sent,(unsigned long)j.skipped,(unsigned long)j.late,(unsigned long)j.maxLate);
     note("SCHEDULE",b);
   }
 }
@@ -490,13 +490,25 @@ void loop(){
             if(!startRequest(request,length)){loggingFault=true;stopRun("Discovery transmission failed");}
           }
         }else {
-          char b[140];snprintf(b,sizeof b,"ECUs=%u overflow=%u; maps used for early completion; JSON requests not yet filtered",unsigned(discovery.count),unsigned(discovery.overflow));note("DISCOVERY_DONE",b);
+          char b[140];snprintf(b,sizeof b,"ECUs=%u overflow=%u; maps used for early completion and conservative PID filtering",unsigned(discovery.count),unsigned(discovery.overflow));note("DISCOVERY_DONE",b);
           if(!discovery.count)note("DISCOVERY_UNKNOWN","No valid support maps; absence is not proof of unsupported data");
           for(size_t e=0;e<discovery.count;++e)for(size_t j=0;j<config.count;++j){
             const auto &job=config.jobs[j];auto support=discovery.support(e,job.bytes[0],job.length>1?job.bytes[1]:0,job.length>2?job.bytes[2]:0);
             snprintf(b,sizeof b,"job=%u mode=%02X identifier=%02X frame=%02X status=%s",unsigned(j+1),job.bytes[0],job.length>1?job.bytes[1]:0,job.length>2?job.bytes[2]:0,automatic::Discovery::name(support));
             recordAt(millis(),"DISCOVERY_SUPPORT",discovery.ecus[e].id,b);
           }
+          size_t enabledCount=0;
+          for(size_t j=0;j<config.count;++j){
+            auto &job=config.jobs[j];auto support=discovery.requestSupport(job.bytes,job.length);
+            job.enabled=support!=automatic::Discovery::Unsupported;
+            if(job.enabled)++enabledCount;
+            snprintf(b,sizeof b,"job=%u mode=%02X identifier=%02X frame=%02X action=%s reason=%s",
+              unsigned(j+1),job.bytes[0],job.length>1?job.bytes[1]:0,job.length>2?job.bytes[2]:0,
+              job.enabled?"KEEP":"SKIP",support==automatic::Discovery::Unsupported?"ALL_DISCOVERED_ECUS_UNSUPPORTED":automatic::Discovery::name(support));
+            note("PID_FILTER",b);
+          }
+          snprintf(b,sizeof b,"configured=%u enabled=%u skipped=%u; unknown support retained",
+            unsigned(config.count),unsigned(enabledCount),unsigned(config.count-enabledCount));note("PID_FILTER_SUMMARY",b);
           obdStatus(discovery.count?"Discovery complete":"Discovery complete: no ECU detected");
           runStart=millis();running=true;
           schedule.begin(config.jobs,config.count,runStart);note("RUN_START","One transaction at a time; late periods skipped, never replayed");

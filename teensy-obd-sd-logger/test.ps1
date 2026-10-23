@@ -38,6 +38,10 @@ try {
   if ($LASTEXITCODE) { throw 'Log rotation test compilation failed' }
   & ./build/test_log_rotation.exe
   if ($LASTEXITCODE) { throw 'Log rotation tests failed' }
+  & g++ -std=c++11 -Wall -Wextra -Werror tests/test_filter.cpp -o build/test_filter.exe
+  if ($LASTEXITCODE) { throw 'Filtering test compilation failed' }
+  & ./build/test_filter.exe
+  if ($LASTEXITCODE) { throw 'Filtering tests failed' }
   & $ArduinoCli compile --fqbn teensy:avr:teensy41:usb=serialmtp --build-path build/teensy41 TeensyOBDSDLogger
   if ($LASTEXITCODE) { throw 'Teensy compilation failed' }
 } finally { Pop-Location }

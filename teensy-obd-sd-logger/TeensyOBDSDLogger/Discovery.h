@@ -62,6 +62,21 @@ public:
     for(unsigned b=0;b<block;++b)if((e.known[m]&(1u<<b))&&!(e.maps[m][b]&1u))return Unsupported;
     return Unknown;
   }
+  // Disable only with explicit negative bitmap evidence from EVERY observed ECU.
+  // A silent ECU cannot be inventoried; this result applies to this boot's responders.
+  Support requestSupport(const uint8_t *p,size_t n)const {
+    if(!p||!n)return Unknown;
+    if(p[0]==3||p[0]==7||p[0]==10)return NotApplicable;
+    if(!((p[0]==1&&n==2)||(p[0]==2&&n==3)||((p[0]==6||p[0]==9)&&n==2)))return Unknown;
+    if(active||overflow||!count)return Unknown;
+    bool unknown=false;
+    for(size_t i=0;i<count;++i){
+      Support result=support(i,p[0],p[1],n>2?p[2]:0);
+      if(result==Supported)return Supported;
+      if(result!=Unsupported)unknown=true;
+    }
+    return unknown?Unknown:Unsupported;
+  }
   // Early completion only when every discovered ECU has a known support answer.
   // Unknown support / no bitmap / overflow keeps the full collection window.
   size_t expected(const uint8_t *p,size_t n,uint32_t *ids)const {
