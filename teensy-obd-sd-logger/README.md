@@ -7,7 +7,7 @@ This is a separate Arduino sketch. The original `teensy-obd-tester` files are un
 1. Use Teensy board package **1.62.0**, ArduinoJson 7, and board **Teensy 4.1**. Select **Tools > USB Type > Serial + MTP Disk (Experimental)**. The build script selects this option automatically. No separate MTP library is required; the core responder is customized locally (see src/mtp/PROVENANCE.md).
 2. Copy the updated `config.json` to the SD-card root. **`run_duration_ms: 0` means continuous logging**; omitting it also defaults to continuous. An old JSON with 60000 still stops after 60 seconds. Keep all other settings unchanged for comparison.
 3. Upload this sketch with its complete folder. On the first setup, insert the configured card as usual. Subsequent file copies and configuration updates can use USB without removing it.
-4. Power the ECU first, then Teensy. Normal CAN reception/acknowledgement begins after valid configuration and PSRAM checks. Startup support discovery begins after the five-second startup delay; configured polling begins after discovery. Logging continues until requested to stop, an optional duration expires, or a fault occurs.
+4. Power the ECU first, then Teensy. Normal CAN reception/acknowledgement begins after valid configuration and PSRAM checks. Startup support discovery begins after the demo configuration's 500 ms startup delay; configured polling begins after discovery. Logging continues until requested to stop, an optional duration expires, or a fault occurs.
 5. Stop using one of the controls below. The logger stops scheduling new requests, lets the active exchange finish, stops capture, drains buffers, and closes the file. SD-card access becomes available only after this shutdown.
 
 ## Stop controls and Windows file access
@@ -66,7 +66,7 @@ ISO-TP flow control uses block size 8, minimum separation 10 ms, a one-second co
 - `bitrate`: default 500000 if omitted; allowed 125000, 250000, 500000 or 1000000. No auto-baud detection.
 - `address_bits`: 11 (default) or 29.
 - `tx_id` / `rx_id`: hexadecimal strings without `0x`. RX `"0"` selects the standard functional response range. Functional TX must be `"7DF"` for 11-bit or `"18DB33F1"` for 29-bit. A nonzero RX requires the matching physical TX, which is also used for flow control.
-- `startup_delay_ms`: 0..600000, default 5000.
+- `startup_delay_ms`: 0..600000, firmware fallback 5000 if omitted; the supplied demo config explicitly sets 500 for an already-powered ECU. Copy the updated config.json to the SD card and restart to apply it; no firmware upload is needed. This shortens the deliberate wait by 4.5 seconds but does not remove hardware initialization or support discovery time. Increase this value if the ECU needs more time to boot.
 - `run_duration_ms`: 0 (continuous, default), or 1000..86400000 for a timed run. Use the stop button/USB stop command to close a continuous run safely.
 - `response_timeout_ms`: 10..10000, default 70; also the response-reloaded collection window when responders are uncertain.
 - `requests`: 1..64 unique objects, each containing `request` (space-separated hex bytes) and `interval_ms` (10..3600000).

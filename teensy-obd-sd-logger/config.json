@@ -4,7 +4,7 @@
   "address_bits": 11,
   "tx_id": "7DF",
   "rx_id": "0",
-  "startup_delay_ms": 5000,
+  "startup_delay_ms": 500,
   "run_duration_ms": 0,
   "response_timeout_ms": 70,
   "requests": [
