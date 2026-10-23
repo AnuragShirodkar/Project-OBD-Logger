@@ -148,3 +148,19 @@ This change does not establish that the previously reported malformed transferre
 Pin 40 uses INPUT_PULLUP: connect a normally-open button between **pin 40 and GND**. A stable press lights the onboard LED and records MODE04_PRESSED. Hold for two seconds (plus 30 ms debounce) to record MODE04_QUEUED; the request is sent after discovery and the active transaction finish, with MODE04_SEND followed by the request/response block. The button must be released before another activation. A button held during boot must first be released; a short press does not clear codes. Stop/fault cancels queued clears, and file-access mode never transmits.
 
 Earlier firmware silently consumed holds that completed during discovery. Those holds now queue instead. This fixes a software path, but cannot confirm physical button wiring. If the LED does not light or MODE04_PRESSED never appears while logging, verify the pin number and the switch's two separate contact groups. MODE04_SEND with a negative response or timeout means the button worked but clearing was not confirmed by the ECU. Mode 04 clears emissions diagnostic data and may be rejected under the current ECU conditions.
+
+
+### External status LEDs and Mode 04 confirmation
+
+Connect each LED anode through its own 440 ohm (two 220 ohm in series) or 470 ohm resistor to the assigned pin, and its cathode to GND.
+
+- Pin 4, green READY: blinks while waiting for the first validated diagnostic response, then stays on during the session. This records communication established, not a continuous connection watchdog.
+- Pin 5, yellow RECORD: on during automatic polling; blinks while stopping/saving. Mode 04 feedback temporarily overrides this indication.
+- Pin 6, blue USB: on when the closed SD card is exposed through MTP.
+- Pin 7, red ALERT: steady for a logger fault. Low-space advance warning is not implemented yet.
+
+Hold the Mode 04 button on pin 40 to GND for two seconds. Yellow blinks while the request is queued or awaiting completion. A successful exchange gives three slow yellow flashes (500 ms on, 500 ms off). Rejection, timeout, cancellation, malformed reply, or incomplete confirmation gives three quick red flashes (150 ms on, 150 ms off). A persistent logger fault takes priority and keeps red on. Feedback uses no delays; logging continues. A new clear request is ignored while another clear request or its feedback is active; release and press again afterwards.
+
+Success requires an exact assembled `44` reply from every ECU discovered at startup (or the configured physical response ID), with no negative reply or transport error. Discovery overflow or an empty inventory cannot produce a success indication. This conservative inventory can include ECUs that do not support clearing: red means **not confirmed for all expected ECUs**, not that none cleared. Pending `7F 04 78` is not a rejection; the existing diagnostic deadlines still apply. Existing response timing is unchanged.
+
+The log and Serial Monitor record `MODE04_ECU` with each responder ID and response type, followed by `MODE04_CONFIRMED` or `MODE04_NOT_CONFIRMED`. The normal RX lines retain the reply bytes/NRC. Confirmation means the ECU accepted the clearing request, not that the underlying fault was repaired. Validate all four LEDs and an accepted/rejected clear on the spare ECU before deployment.

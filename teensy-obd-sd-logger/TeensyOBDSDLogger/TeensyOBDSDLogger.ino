@@ -8,6 +8,9 @@
 #include <new>
 #include "RunControl.h"
 #include "Discovery.h"
+#include "Mode4Feedback.h"
+automatic::Mode4Feedback mode4Feedback;
+constexpr unsigned READY_LED_PIN=4, RECORD_LED_PIN=5, USB_LED_PIN=6, ALERT_LED_PIN=7;
 automatic::Discovery discovery;
 automatic::RequestSpacing requestSpacing;
 bool discoveryStarted=false;
@@ -211,6 +214,19 @@ public:
     note("TX_FAILED","No free hardware mailbox");return false;
   }
   void event(const char *kind,uint32_t id,const uint8_t *p,size_t n)override{
+    if(mode4Feedback.active){
+      if(!strcmp(kind,"REQUEST_END")||!strcmp(kind,"CANCELLED")){
+        if(!strcmp(kind,"CANCELLED"))mode4Feedback.observe(kind,id,p,n);
+        bool ok=mode4Feedback.finish(millis());
+        note(ok?"MODE04_CONFIRMED":"MODE04_NOT_CONFIRMED",ok?
+          "All expected ECUs replied 44; yellow flashes three times":
+          "Rejected, missing/invalid reply, cancelled, or unknown ECU inventory; check per-ECU trace");
+      }else {
+        mode4Feedback.observe(kind,id,p,n);
+        if(!strcmp(kind,"POSITIVE")||!strcmp(kind,"NEGATIVE")||!strcmp(kind,"RESPONSE_PENDING"))
+          recordAt(millis(),"MODE04_ECU",id,kind);
+      }
+    }
     if(n&&(!strcmp(kind,"POSITIVE")||!strcmp(kind,"NEGATIVE")||!strcmp(kind,"RESPONSE_PENDING")))indicateResponse();
     if(!n){
       if(!strcmp(kind,"REQUEST_END")){
@@ -278,10 +294,10 @@ void pollStop(){
   if(buttonEvents&automatic::Mode4Button::Pressed)note("MODE04_PRESSED","Pin 40 LOW detected; hold for 2 seconds");
   if(buttonEvents&automatic::Mode4Button::Released)note("MODE04_RELEASED","Pin 40 HIGH; button armed for next press");
   if(buttonEvents&automatic::Mode4Button::Triggered){
-    if(configGood&&!closing&&!stopRequested&&!mode4Requested){
-      mode4Requested=true;
+    if(configGood&&!closing&&!stopRequested&&!mode4Requested&&!mode4Feedback.occupied()){
+      mode4Requested=true;mode4Feedback.queued();
       note("MODE04_QUEUED",running?"Will send after current transaction":"Will send after startup/discovery completes");
-    }else note("MODE04_IGNORED","Stopping, configuration failure, or request already queued");
+    }else note("MODE04_IGNORED","Stopping, configuration failure, or request/feedback already active");
   }
   static char command[16];static unsigned length=0;static bool overflow=false;
   for(unsigned i=0;i<32&&Serial.available();++i){
@@ -306,6 +322,7 @@ void rotateLog(){
 void setup(){
   Serial.begin(115200);
   pinMode(STOP_BUTTON_PIN,INPUT_PULLUP);pinMode(MODE4_BUTTON_PIN,INPUT_PULLUP);MTP.PrintStream(&mtpDebug);MTP.begin();
+  for(unsigned pin: {READY_LED_PIN,RECORD_LED_PIN,USB_LED_PIN,ALERT_LED_PIN}){pinMode(pin,OUTPUT);digitalWrite(pin,LOW);}
   pinMode(LED_BUILTIN,OUTPUT);digitalWrite(LED_BUILTIN,LOW);
   sdMounted=SD.begin(BUILTIN_SDCARD);
   if(sdMounted&&digitalRead(STOP_BUTTON_PIN)==LOW){
@@ -396,7 +413,7 @@ void stopRun(const char *reason){
     if(automatic::durationReached(config.duration,runStart,end))end=runStart+config.duration-1;
     schedule.finish(config.jobs,config.count,end);
   }
-  if(mode4Requested){note("MODE04_CANCELLED","Queued manual request cancelled by stop/fault");mode4Requested=false;}
+  if(mode4Requested){note("MODE04_CANCELLED","Queued manual request cancelled by stop/fault");mode4Requested=false;mode4Feedback.finish(millis());}
   running=false;ready=false;diagnostics.cancel();transactionEnded=false;
   noInterrupts();captureEnabled=false;uint32_t boundaryFlags=canStarted?FLEXCANb_IFLAG1(CAN1):0;interrupts();
   if(canStarted){can.disableFIFOInterrupt();can.setBaudRate(configuredRate,LISTEN_ONLY);}
@@ -404,7 +421,16 @@ void stopRun(const char *reason){
     unsigned((boundaryFlags&FLEXCAN_IFLAG1_BUF5I)!=0));note("CAPTURE_STOP",boundary);
   note("STOP",reason);obdStatus(reason);closing=true;
 }
+void updateStatusLeds(){
+  uint32_t now=millis();mode4Feedback.update(now);
+  bool fault=loggingFault||(finished&&!completedClean)||(closing&&!configGood);
+  digitalWrite(READY_LED_PIN,!finished&&!closing&&configGood&&(responseLedSeen||((now/500)%2==0)));
+  digitalWrite(RECORD_LED_PIN,mode4Feedback.yellow(now,!finished&&sdGood&&(closing||stopRequested?((now/250)%2==0):running)));
+  digitalWrite(USB_LED_PIN,fileTransferActive);
+  digitalWrite(ALERT_LED_PIN,mode4Feedback.red(now,fault));
+}
 void loop(){
+  updateStatusLeds();
   // No SD filesystem is advertised while capture/logging owns it.
   if(finished){MTP.loop();if(!completedClean)digitalWrite(LED_BUILTIN,(millis()/250)%2);pumpConsole();return;}
   pollStop();
@@ -484,7 +510,13 @@ void loop(){
             const uint8_t request[]={0x04};
             note("MODE04_SEND","Sending clear request from pin 40 button; ECU may accept or reject");
 
+            uint32_t targets[8];size_t targetCount=0;
+            if(addressing.rx)targets[targetCount++]=addressing.rx;
+            else for(size_t i=0;i<discovery.count;++i)targets[targetCount++]=discovery.ecus[i].id;
+            // Keep the existing collection window; inventory is only used to judge confirmation.
+            mode4Feedback.begin(targets,targetCount,addressing.rx!=0||!discovery.overflow);
             if(!startRequest(request,sizeof(request))){
+              if(mode4Feedback.active){mode4Feedback.finish(millis());note("MODE04_NOT_CONFIRMED","Transmission failed");}
               loggingFault=true;stopRun("Manual Mode 04 transmission failed");
             }
           }else {
