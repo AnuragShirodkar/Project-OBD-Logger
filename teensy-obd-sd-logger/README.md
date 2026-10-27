@@ -200,3 +200,6 @@ The inventory covers responders observed at startup, not ECUs that were silent o
 This update adds 21 requests: six live-data PIDs, ten freeze-frame PIDs, and five monitor IDs. The new entries are advertised by the tested ECU, not yet proven to return usable measurements. Earlier freeze-frame rejections and Mode 0A rejection remain possible; response-aware backoff is not implemented. PID 01 11 still needs validation due to the observed payload-length anomaly. Original candidates 01 2F, 09 08, 09 0A and 09 0B remain for other ECUs and should be filtered out with the same Bolero maps, leaving 47 enabled requests, not 47 guaranteed successful measurements.
 
 Copy config.json through USB file-access mode and restart. More enabled jobs generally lengthen individual PID polling cycles; the 10 ms target is not a guaranteed per-PID update rate. Review the next parked-vehicle test log to validate the new replies. No other vehicle's support is assumed.
+
+### USB file visibility
+The USB MTP listing hides System Volume Information and mtpindex.dat (case-insensitive), including contents of hidden folders. config.json and OBD logs remain visible. These support items stay on the SD card; a direct card reader may still show them. After uploading this firmware, reconnect USB to refresh the listing. This is a display filter, not access control.

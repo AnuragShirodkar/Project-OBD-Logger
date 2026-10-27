@@ -42,6 +42,10 @@ try {
   if ($LASTEXITCODE) { throw 'Filtering test compilation failed' }
   & ./build/test_filter.exe
   if ($LASTEXITCODE) { throw 'Filtering tests failed' }
+  & g++ -std=c++11 -Wall -Wextra -Werror tests/test_mtp_visibility.cpp -o build/test_mtp_visibility.exe
+  if ($LASTEXITCODE) { throw 'MTP visibility compilation failed' }
+  & ./build/test_mtp_visibility.exe
+  if ($LASTEXITCODE) { throw 'MTP visibility tests failed' }
   & $ArduinoCli compile --fqbn teensy:avr:teensy41:usb=serialmtp --build-path build/teensy41 TeensyOBDSDLogger
   if ($LASTEXITCODE) { throw 'Teensy compilation failed' }
 } finally { Pop-Location }

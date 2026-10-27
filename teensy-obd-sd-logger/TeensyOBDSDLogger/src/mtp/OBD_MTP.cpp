@@ -30,7 +30,8 @@
 #define USE_DISK_BUFFER // only currently on T4.x
 
 #include "Arduino.h"
-// Use the 1.62 core class definitions and storage engine; customize only identity.
+#include "VisibleObjects.h"
+// Use the 1.62 core class definitions and storage engine; customize identity and visible-object enumeration.
 #undef MTP_MANUF
 #undef MTP_MODEL
 #undef MTP_NAME
@@ -1029,8 +1030,9 @@ uint32_t MTP_class::GetNumObjects(struct MTPContainer &cmd) {
   uint32_t store = Storage2Store(storage);
   if (storage_.isMediaPresent(store)) {
     storage_.StartGetObjectHandles(store, parent);
-    while (storage_.GetNextObjectHandle(store)) {
-      num++;
+    uint32_t handle;
+    while ((handle = storage_.GetNextObjectHandle(store)) != 0) {
+      if (obd_mtp::objectVisible<MTP_MAX_FILENAME_LEN>(storage_, handle, MTPD_MAX_FILESYSTEMS)) num++;
     }
   }
   cmd.params[0] = num;
@@ -1055,8 +1057,9 @@ uint32_t MTP_class::GetObjectHandles(struct MTPContainer &cmd) {
   uint32_t num_handles = 0;
   if (storage_.isMediaPresent(store)) {
     storage_.StartGetObjectHandles(store, parent);
-    while (storage_.GetNextObjectHandle(store)) {
-      num_handles++;
+    uint32_t handle;
+    while ((handle = storage_.GetNextObjectHandle(store)) != 0) {
+      if (obd_mtp::objectVisible<MTP_MAX_FILENAME_LEN>(storage_, handle, MTPD_MAX_FILESYSTEMS)) num_handles++;
     }
   }
   writeDataPhaseHeader(cmd, 4 + num_handles*4);
@@ -1066,7 +1069,7 @@ uint32_t MTP_class::GetObjectHandles(struct MTPContainer &cmd) {
     uint32_t handle;
     storage_.StartGetObjectHandles(store, parent);
     while ((handle = storage_.GetNextObjectHandle(store)) != 0) {
-        write32(handle);
+        if (obd_mtp::objectVisible<MTP_MAX_FILENAME_LEN>(storage_, handle, MTPD_MAX_FILESYSTEMS)) write32(handle);
     }
   }
   write_finish();
