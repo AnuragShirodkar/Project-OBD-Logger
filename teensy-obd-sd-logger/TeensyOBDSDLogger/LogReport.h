@@ -35,6 +35,11 @@ inline void formatHeader(char *out,size_t cap,const char *date){
   // Fixed-width date field permits safe in-place update after PC time is entered.
   snprintf(out,cap,"%s\nDate: %-19.19s\n\n",LOG_TITLE,date?date:"");
 }
+// Standalone SD logging has no synchronized calendar clock. Keep raw numeric
+// timestamps compatible with existing trace readers and state their time base.
+inline void formatElapsedHeader(char *out,size_t cap){
+  snprintf(out,cap,"%s\nTime: elapsed milliseconds since power-on\nCalendar date: unavailable (no time sync)\n\n",LOG_TITLE);
+}
 inline void formatEvent(char *out,size_t cap,uint32_t ms,uint32_t request,
                         uint32_t rate,const char *kind,uint32_t id,const char *detail){
   snprintf(out,cap,"[%10lu ms] Request %-4lu CAN %08lX  %-22s %s (bitrate %lu)\n",

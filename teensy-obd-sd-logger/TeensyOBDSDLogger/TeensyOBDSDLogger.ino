@@ -152,7 +152,7 @@ bool fileWriteError(){return obdfile.getWriteError();}
 void flushFiles(){obdfile.flush();}
 void closeFiles(){obdfile.close();}
 bool writeHeaders(){
-  char header[100];obd::formatHeader(header,sizeof header,"");size_t n=strlen(header);
+  char header[160];obd::formatElapsedHeader(header,sizeof header);size_t n=strlen(header);
   return obdfile.write((const uint8_t*)header,n)==n;
 }
 void pumpLog(){
@@ -335,7 +335,7 @@ void setup(){
   }
   if(sdMounted)sdGood=openLogSegment();
   if(sdGood){
-    char header[100];obd::formatHeader(header,sizeof header,"");
+    char header[160];obd::formatElapsedHeader(header,sizeof header);
     queueConsole(header);
     sdGood=writeHeaders();
   }

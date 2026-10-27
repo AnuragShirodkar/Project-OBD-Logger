@@ -30,6 +30,17 @@ Mode 04 clears emissions-related diagnostic information, including stored codes 
 
 ## Long runs
 
+### Elapsed time, without an RTC
+
+Each SD log explicitly declares `Time: elapsed milliseconds since power-on` and
+`Calendar date: unavailable (no time sync)`. All existing numeric CAN, payload and
+event timestamps remain milliseconds from the same power-on origin. For example,
+3632 means 3.632 seconds after startup. They do not restart when a file rotates;
+a power-cycle starts a new time base. The 32-bit millisecond counter wraps after
+approximately 49.7 days. No RTC or PC time synchronization is required. Windows
+file dates remain filesystem metadata and must not be used as recording dates.
+Existing log files are not rewritten.
+
 Each text log is capped at **250 MB (250,000,000 bytes, including the header)**. Before a buffered write would exceed the limit, the logger flushes/closes the current file and opens the next unused OBDxxxx.TXT file. A segment may therefore finish a few kilobytes below the limit. Capture interrupts continue and PSRAM buffers incoming frames during rotation. Counters continue across segments, and each new file gets the standard header. Rotation can occur during an exchange (or a long text payload), so read consecutive files in order for complete transactions. Files are never overwritten. A flush/open/header/write failure stops logging; existing files are retained. Exhausting storage or all 10,000 filenames also stops logging.
 
 The old manual firmware and installed board libraries are not modified. The local MTP responder is tied to the 1.62.0 core API; revalidate when upgrading Teensy support.
@@ -131,7 +142,7 @@ Upload the complete sketch and copy the updated config.json (response_timeout_ms
 
 ## CAN and diagnostic trace layout
 
-New OBD logs retain only the OBD-SkillLogger Version 1.0.0 and Date fields in the file header. Date remains blank until a trustworthy date source is implemented; Time fields are uptime milliseconds. Existing log files are not rewritten.
+New OBD logs include the OBD-SkillLogger Version 1.0.0 title and explicitly identify elapsed milliseconds since power-on. Calendar time is unavailable; no blank Date field is emitted. Existing log files are not rewritten.
 
 Raw frames use TX-CAN / RX-CAN with Std/Ext ID, Time, Len and hexadecimal bytes. ISO-TP flow-control frames are included as TX-CAN. TX-CAN means accepted into a transmit mailbox, not confirmed wire transmission. Requests have a Mode/PID (or MID)/Frame description and an assembled TX line; assembled positive, negative and pending responses use RX lines. Transport bytes and CAN padding appear only in the raw view. Multi-frame payloads remain on a single logical RX line even up to 4095 bytes; bounded queue fragments prevent large temporary allocations. Remote frames are marked RTR.
 

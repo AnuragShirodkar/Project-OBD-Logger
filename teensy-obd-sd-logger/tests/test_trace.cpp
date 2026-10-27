@@ -1,10 +1,18 @@
 #include "../TeensyOBDSDLogger/TraceFormat.h"
+#include "../TeensyOBDSDLogger/LogReport.h"
 #include <string>
 #include <cassert>
 #include <cstdio>
 static std::string output;
 void collect(const char *s){output+=s;assert(std::string(s).size()<320);}
 int main(){
+  char header[160];obd::formatElapsedHeader(header,sizeof header);
+  assert(std::string(header)=="OBD-SkillLogger Version 1.0.0\n"
+    "Time: elapsed milliseconds since power-on\n"
+    "Calendar date: unavailable (no time sync)\n\n");
+  // A rotated file declares the same power-on origin, not a new clock origin.
+  char nextHeader[160];obd::formatElapsedHeader(nextHeader,sizeof nextHeader);
+  assert(std::string(header)==nextHeader);
   uint8_t frame[]={2,1,0,0,0,0,0,0};
   obd::traceCan(collect,"TX",false,0x7df,124,frame,8);
   assert(output=="TX-CAN:  Std: 7DF   Time:    124   Len:  8   02 01 00 00 00 00 00 00\n");
