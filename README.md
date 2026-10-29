@@ -18,11 +18,12 @@ upload has been performed as part of this development.
 Later: a Windows configuration tool exporting multi-mode OBD JSON, transferred by
 USB or SD. Android is no longer planned. XCP and CCP remain deferred.
 
-## Earlier simulator work
+## Test hardware
 
-The [STM32F407 four-ECU simulator](stm32-obd-simulator/README.md) and
-[its wiring guide](stm32-obd-simulator/WIRING.md) are preserved for reference.
-The current test plan uses the real ECU directly.
+The project uses real ECUs for testing. STM32 vehicle simulation has been retired
+and its source projects are no longer included in this repository's current files.
+Earlier commits and design documents retain historical simulator references;
+those simulator procedures are no longer part of the active test plan.
 
 See each component's README for validation and limitations. Build artifacts, local
 tool dependencies and credentials must not be committed.

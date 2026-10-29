@@ -8,3 +8,7 @@
 *.key
 .DS_Store
 Thumbs.db
+
+# Retired STM32 simulators: retained locally only
+/stm32-obd-simulator/
+/stm32-obd-four-ecu-stage1/
