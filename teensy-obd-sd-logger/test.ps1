@@ -10,6 +10,10 @@ try {
   if ($LASTEXITCODE) { throw 'J1979 data validation compilation failed' }
   & ./build/test_j1979_validation.exe
   if ($LASTEXITCODE) { throw 'J1979 data validation tests failed' }
+  & g++ -std=c++11 -Wall -Wextra -Werror tests/test_readiness.cpp -o build/test_readiness.exe
+  if ($LASTEXITCODE) { throw 'Readiness compilation failed' }
+  & ./build/test_readiness.exe
+  if ($LASTEXITCODE) { throw 'Readiness tests failed' }
   & g++ -std=c++11 -Wall -Wextra -Werror tests/test_core.cpp -o build/test_core.exe
   if ($LASTEXITCODE) { throw 'Core test compilation failed' }
   & ./build/test_core.exe

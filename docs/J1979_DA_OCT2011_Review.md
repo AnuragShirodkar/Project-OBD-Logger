@@ -80,7 +80,10 @@ These are locators for a review, not a reproduction of the source tables.
 
 1. Finish the applicable-requirements inventory, including each claimed identifier,
    dependencies, exceptions, source locator, implementation location and test evidence.
-2. Add readiness interpretation to the automatic trace; currently it retains bytes.
+2. Readiness interpretation is now implemented for Mode 01 PID 01 by `Readiness.h`
+   and called by the automatic trace. Regression tests cover both monitor families,
+   per-ECU isolation, unsupported monitors and reserved-bit warnings. Independent
+   ECU/reference-tool comparison and the remaining semantic checks are still open.
 3. Complete data lengths and semantic rules outside the initial validator. Do not
    treat a generic successful response as proof that its definition is implemented.
 4. Add per-ECU scaling context, including the dependency between PID 10 and PID 50.
@@ -133,3 +136,16 @@ No hardware was flashed or certification test performed as part of this change.
 Before release, retain the flashed commit, configuration, reference-tool capture,
 test conditions and expected/actual results. Close every applicable requirement and
 source ambiguity before considering a full-conformance claim.
+
+The initial validation revision passed all host tests and the Teensy 4.1 build.
+The build emitted an existing FlexCAN_T4 `strncpy` truncation warning; it was not
+introduced or resolved by the data-validation changes.
+
+## Readiness trace behavior
+
+Mode 01 PID 01 now adds human-readable lines after the preserved RX payload.
+The interpretation is local to each ECU reply. Unsupported non-continuous monitors
+are N/A, and reserved bits produce a warning rather than fabricated monitor names.
+Completion is not displayed as a passed emissions test. The ignition-selector bit
+selects the labels internally; it is not presented as a separate vehicle-fuel result.
+The decoder does not reuse these rules for PID 41 or freeze-frame responses.

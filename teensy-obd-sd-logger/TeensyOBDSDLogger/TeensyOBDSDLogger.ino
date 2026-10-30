@@ -10,6 +10,7 @@
 #include "Discovery.h"
 #include "Mode4Feedback.h"
 #include "LogRotation.h"
+#include "Readiness.h"
 automatic::Mode4Feedback mode4Feedback;
 constexpr unsigned READY_LED_PIN=4, RECORD_LED_PIN=5, USB_LED_PIN=6, ALERT_LED_PIN=7;
 automatic::Discovery discovery;
@@ -266,7 +267,7 @@ public:
       if(!discovery.observe(id))recordAt(millis(),"DISCOVERY_OVERFLOW",id,"ECU inventory capacity exceeded");
     if(n==3 && p[0]==0x7F){recordAt(millis(),"NRC",id,nrcName(p[2]));obdStatus(nrcName(p[2]),id);}
     if(!strcmp(kind,"POSITIVE")){
-
+      obd::traceReadiness(exchangeWrite,id,p,n);
       if(discovery.busy()){
         if(discovery.receive(id,p,n))recordAt(millis(),"DISCOVERY_MAP",id,"Validated support bitmap stored");
         else recordAt(millis(),"DISCOVERY_INVALID",id,"Support bitmap not stored; malformed or ECU capacity exceeded");
