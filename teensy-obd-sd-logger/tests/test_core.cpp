@@ -8,6 +8,7 @@ struct Fake:obd::Sink {
   std::vector<obd::Frame> sent;std::vector<Event> events;bool allow=true;
   bool send(const obd::Frame &f)override{if(!allow)return false;sent.push_back(f);return true;}
   void event(const char*k,uint32_t id,const uint8_t*p,size_t n)override{
+    if (!strcmp(k,"UNVERIFIED_DEFINITION")) return; // Separately covered by data-validation tests.
     events.push_back({k,id,n?std::vector<uint8_t>(p,p+n):std::vector<uint8_t>()});
   }
   bool saw(const char*k){for(auto &e:events)if(e.kind==k)return true;return false;}
@@ -54,10 +55,10 @@ int main(){
   assert(c.busy()&&f.saw("RESPONSE_PENDING"));c.tick(14000);
   assert(!c.busy()&&f.saw("RESPONSE_DEADLINE"));
   // Reassembly with sequence wrap and multiple block-size handshakes.
-  f.events.clear();f.sent.clear();uint8_t vin[]={9,2};assert(c.start(vin,2,a,15000));
-  std::vector<uint8_t> data(130);data[0]=0x49;data[1]=2;
+  f.events.clear();f.sent.clear();uint8_t vin[]={9,4} /* synthetic transport data, not a VIN */;assert(c.start(vin,2,a,15000));
+  std::vector<uint8_t> data(130);data[0]=0x49;data[1]=4;
   for(size_t i=2;i<data.size();++i)data[i]=uint8_t(i);
-  auto ff=frame(0x7e8,{0x10,130,0x49,2,2,3,4,5});c.receive(ff,15010);
+  auto ff=frame(0x7e8,{0x10,130,0x49,4,2,3,4,5});c.receive(ff,15010);
   assert(f.sent.size()==2&&f.sent[1].id==0x7e0&&f.sent[1].data[0]==0x30);
   size_t have=6;unsigned seq=1;uint32_t t=15020;
   while(have<data.size()){
@@ -84,15 +85,15 @@ int main(){
   assert(f.saw("REQUEST_TX_FAILED"));
   f.allow=true;f.events.clear();f.sent.clear();a=obd::Address();
   assert(c.start(vin,2,a,10000));
-  c.receive(frame(0x7e8,{0x10,10,0x49,2,1,65,66,67}),10001);
-  c.receive(frame(0x7e9,{0x10,10,0x49,2,1,97,98,99}),10002);
+  c.receive(frame(0x7e8,{0x10,10,0x49,4,1,65,66,67}),10001);
+  c.receive(frame(0x7e9,{0x10,10,0x49,4,1,97,98,99}),10002);
   assert(f.sent.size()==3&&f.sent[1].id==0x7e0&&f.sent[2].id==0x7e1);
   c.receive(frame(0x7e9,{0x21,100,101,102,103}),10010);
   c.receive(frame(0x7e8,{0x21,68,69,70,71}),10020);
   assert(f.events.size()==2&&f.events[0].id==0x7e9&&f.events[1].id==0x7e8);
   assert(f.events[0].data[9]==103&&f.events[1].data[9]==71);c.tick(11502);
   f.events.clear();assert(c.start(vin,2,a,12000));f.allow=false;
-  c.receive(frame(0x7e8,{0x10,10,0x49,2,1,65,66,67}),12001);
+  c.receive(frame(0x7e8,{0x10,10,0x49,4,1,65,66,67}),12001);
   assert(f.saw("FLOW_CONTROL_TX_FAILED"));c.tick(13501);assert(!c.busy());
   puts("PASS: parser, addressing, matching, negative/pending, timeout, ISO-TP blocks/sequence/wrap, TX failure");
   static Fake pf; static obd::DiagnosticCore pc(pf); obd::Address pa;pa.tx=0x7e0;pa.rx=0x7e8;
@@ -119,7 +120,7 @@ int main(){
   fc.receive(frame(0x7e8,{3,0x7f,1,0x78}),508);fc.tick(600);assert(fc.busy());
   fc.receive(frame(0x7e8,{4,0x41,0x0c,0,0}),700);fc.tick(700);assert(!fc.busy());
   assert(fc.start(vin,2,functional,800,ids,1));
-  fc.receive(frame(0x7e8,{0x10,10,0x49,2,1,65,66,67}),808);fc.tick(900);assert(fc.busy());
+  fc.receive(frame(0x7e8,{0x10,10,0x49,4,1,65,66,67}),808);fc.tick(900);assert(fc.busy());
   fc.receive(frame(0x7e8,{0x21,68,69,70,71}),950);fc.tick(950);assert(!fc.busy());
   assert(fc.start(rpm,2,functional,1000,ids,1));
   fc.receive(frame(0x7e8,{3,0x7f,1,0x12}),1008);fc.tick(1008);assert(!fc.busy());

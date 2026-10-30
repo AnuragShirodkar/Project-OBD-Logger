@@ -253,6 +253,7 @@ public:
       }
     }
     if(n){
+      if(!strcmp(kind,"INVALID_LENGTH")||!strcmp(kind,"INVALID_VALUE"))obdStatus(kind,id);
       if(discovery.busy()){
         bool known=false;for(size_t i=0;i<discovery.count;++i)if(discovery.ecus[i].id==id)known=true;
         if(!known){char line[100];snprintf(line,sizeof line,"%7lu  ECU %u detected, Identifier %03lX\n",(unsigned long)millis(),unsigned(discovery.count),(unsigned long)id);obdWrite(line);}
@@ -263,7 +264,7 @@ public:
     }
     if(discovery.busy()&&n&&(!strcmp(kind,"POSITIVE")||!strcmp(kind,"NEGATIVE")||!strcmp(kind,"RESPONSE_PENDING")))
       if(!discovery.observe(id))recordAt(millis(),"DISCOVERY_OVERFLOW",id,"ECU inventory capacity exceeded");
-    if(n>=3 && p[0]==0x7F){recordAt(millis(),"NRC",id,nrcName(p[2]));obdStatus(nrcName(p[2]),id);}
+    if(n==3 && p[0]==0x7F){recordAt(millis(),"NRC",id,nrcName(p[2]));obdStatus(nrcName(p[2]),id);}
     if(!strcmp(kind,"POSITIVE")){
 
       if(discovery.busy()){

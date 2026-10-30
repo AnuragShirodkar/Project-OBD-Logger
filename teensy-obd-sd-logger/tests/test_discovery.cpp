@@ -31,7 +31,8 @@ int main(){
   // All ranges terminate without wrapping past E0; verify PID FF bit mapping.
   d.begin();steps=0;while(d.busy()){
     size_t n=d.request(request);uint8_t response[7]={};response[0]=request[0]+0x40;response[1]=request[1];
-    unsigned offset=n==3?3:2;response[offset+3]=3;
+    unsigned offset=n==3?3:2;response[offset+3]=request[1]==0xE0?2:3;
+    if(request[1]==0xE0){response[offset+3]=3;assert(!d.receive(0x7e8,response,offset+4));response[offset+3]=2;}
     assert(d.receive(0x7e8,response,offset+4));d.finishTransaction();assert(++steps<=64);
   }
   assert(d.support(0,1,0xff)==Discovery::Supported);

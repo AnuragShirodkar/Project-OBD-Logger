@@ -6,6 +6,10 @@ $ErrorActionPreference = 'Stop'
 Push-Location $PSScriptRoot
 try {
   New-Item -ItemType Directory -Force build | Out-Null
+  & g++ -std=c++11 -Wall -Wextra -Werror tests/test_j1979_validation.cpp -o build/test_j1979_validation.exe
+  if ($LASTEXITCODE) { throw 'J1979 data validation compilation failed' }
+  & ./build/test_j1979_validation.exe
+  if ($LASTEXITCODE) { throw 'J1979 data validation tests failed' }
   & g++ -std=c++11 -Wall -Wextra -Werror tests/test_core.cpp -o build/test_core.exe
   if ($LASTEXITCODE) { throw 'Core test compilation failed' }
   & ./build/test_core.exe

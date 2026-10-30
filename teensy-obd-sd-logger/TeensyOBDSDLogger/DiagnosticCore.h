@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include "J1979Validation.h"
 
 namespace obd {
 struct Frame { uint32_t id; bool extended; uint8_t len; uint8_t data[8]; };
@@ -102,6 +103,13 @@ class DiagnosticCore {
     s.receiving=false;s.last=now;s.complete=false;
     if(!matches(s.bytes,s.length)) {emit("UNMATCHED_PAYLOAD",s.id);return;}
     matched=true;
+    DataValidation validation=validateData(s.bytes,s.length);
+    if(invalidData(validation)) {
+      s.pending=false;
+      sink.event(validationName(validation),s.id,s.bytes,s.length);
+      return; // Preserve payload, but do not count malformed data as completion.
+    }
+    if(validation==DataValidation::Unverified)emit("UNVERIFIED_DEFINITION",s.id);
     if(s.bytes[0]==0x7F) {
       s.pending=s.bytes[2]==0x78;s.complete=!s.pending;
       sink.event(s.pending?"RESPONSE_PENDING":"NEGATIVE",s.id,s.bytes,s.length);

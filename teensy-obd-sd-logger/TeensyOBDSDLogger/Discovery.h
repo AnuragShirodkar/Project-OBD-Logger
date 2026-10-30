@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
+#include "J1979Validation.h"
 namespace automatic {
 // One boot-time scan, up to eight ECUs; Mode 02 maps are for freeze frame 00.
 class Discovery {
@@ -37,6 +38,7 @@ public:
     if(!active||!p)return false;
     unsigned offset=modeAt(modeIndex)==2?3:2;
     if(n!=offset+4||p[0]!=modeAt(modeIndex)+0x40||p[1]!=range*32||(offset==3&&p[2]!=0))return false;
+    if(obd::invalidData(obd::validateData(p,n)))return false;
     if(!observe(id))return false;
     size_t i=0;for(;i<count;++i)if(ecus[i].id==id)break;
     uint32_t bits=(uint32_t(p[offset])<<24)|(uint32_t(p[offset+1])<<16)|(uint32_t(p[offset+2])<<8)|p[offset+3];
