@@ -35,6 +35,14 @@ inline size_t reviewedPidLength(uint8_t pid) {
 inline bool vinCharacter(uint8_t c) {
   return (c>='0'&&c<='9') || (c>='A'&&c<='Z'&&c!='I'&&c!='O'&&c!='Q');
 }
+// Query the same rule set used below, for configuration coverage reports.
+// Service is the positive response service (41/42/46/49), not the request mode.
+inline bool hasReviewedLayout(uint8_t service,uint8_t identifier) {
+  if(service==0x41||service==0x42)return reviewedPidLength(identifier)!=0;
+  if(service==0x46||service==0x49)
+    return supportIdentifier(identifier)||(service==0x49&&identifier==2);
+  return false;
+}
 // Only validate a fully reassembled, matched, single-identifier response.
 // LayoutChecked means length/selected fields checked, NOT all semantics checked.
 inline DataValidation validateData(const uint8_t *p,size_t n) {
@@ -44,6 +52,7 @@ inline DataValidation validateData(const uint8_t *p,size_t n) {
   if(p[0]!=0x41&&p[0]!=0x42&&p[0]!=0x46&&p[0]!=0x49)return DataValidation::Unverified;
   const size_t offset=p[0]==0x42?3:2;
   if(n<offset)return DataValidation::WrongLength;
+  if(!hasReviewedLayout(p[0],p[1]))return DataValidation::Unverified;
   if(supportIdentifier(p[1])) {
     if(n!=offset+4)return DataValidation::WrongLength;
     // E0's final bit is reserved, not a continuation to 100.

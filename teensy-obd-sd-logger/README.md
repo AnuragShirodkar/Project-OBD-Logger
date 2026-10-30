@@ -203,3 +203,16 @@ Copy config.json through USB file-access mode and restart. More enabled jobs gen
 
 ### USB file visibility
 The USB MTP listing hides System Volume Information and mtpindex.dat (case-insensitive), including contents of hidden folders. config.json and OBD logs remain visible. These support items stay on the SD card; a direct card reader may still show them. After uploading this firmware, reconnect USB to refresh the listing. This is a display filter, not access control.
+
+## October 2011 data-validation work
+
+The logger now checks selected response layouts before counting a positive reply
+as complete. `INVALID_LENGTH` / `INVALID_VALUE` entries retain the original bytes.
+`UNVERIFIED_DEFINITION` means a decoder rule has not yet been installed; it is not
+an ECU rejection. Mode 01 PID 01 also produces per-ECU readiness explanations after
+the RX payload, with separate spark/compression monitor labels.
+
+The current JSON has layout rules for 38 of 51 jobs (74.5%). This is **not** an
+overall standards-compliance percentage. Run `test.ps1` to recompute it after
+configuration changes. The review notes, remaining gaps and claim boundaries are in
+[the OCT2011 review](../docs/J1979_DA_OCT2011_Review.md).

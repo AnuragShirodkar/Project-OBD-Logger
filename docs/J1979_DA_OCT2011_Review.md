@@ -124,6 +124,19 @@ A separate, narrower metric may count configured jobs with installed layout rule
 It measures only the current JSON and says nothing about unconfigured identifiers,
 semantic correctness, transport behavior or certification.
 
+`tests/report_layout_coverage.cpp` computes that metric from the actual JSON and the
+same rule query used by the firmware. Run `build/report_layout_coverage.exe config.json`
+from `teensy-obd-sd-logger` after the test script builds it. The report lists jobs with
+no rule; it never turns the percentage into a compliance claim. Jobs are counted
+before vehicle-specific filtering, equally, regardless of polling interval.
+
+Measured on the current 51-job JSON: **38/51 = 74.5% configured-job layout-rule
+coverage**. This is a post-change measurement, not a retrospective compliance
+score for the baseline. The 13 jobs still without rules are `03`, `06 21`, `06 31`,
+`06 85`, `06 98`, `06 B2`, `07`, `09 04`, `09 06`, `09 08`, `09 0A`, `09 0B`, `0A`.
+Adding those 13 rules would make this limited metric 100%, but would not establish
+100% J1979-DA compliance. A length check cannot verify the meaning of all data.
+
 ## Verification and release gate
 
 Run `teensy-obd-sd-logger/test.ps1`, including the new validation regression and the
@@ -137,7 +150,8 @@ Before release, retain the flashed commit, configuration, reference-tool capture
 test conditions and expected/actual results. Close every applicable requirement and
 source ambiguity before considering a full-conformance claim.
 
-The initial validation revision passed all host tests and the Teensy 4.1 build.
+The validation, readiness and coverage-report revisions passed all 12 host test
+executables and the Teensy 4.1 build. The coverage report ran on the actual JSON.
 The build emitted an existing FlexCAN_T4 `strncpy` truncation warning; it was not
 introduced or resolved by the data-validation changes.
 

@@ -22,6 +22,10 @@ try {
   if ($LASTEXITCODE) { throw 'Config test compilation failed' }
   & ./build/test_config.exe
   if ($LASTEXITCODE) { throw 'Config tests failed' }
+  & g++ -std=c++11 -Wall -Wextra -Werror "-I$ArduinoJson" tests/report_layout_coverage.cpp -o build/report_layout_coverage.exe
+  if ($LASTEXITCODE) { throw 'Layout coverage reporter compilation failed' }
+  & ./build/report_layout_coverage.exe config.json
+  if ($LASTEXITCODE) { throw 'Layout coverage report failed' }
   & g++ -std=c++11 -Wall -Wextra -Werror tests/test_capture.cpp -o build/test_capture.exe
   if ($LASTEXITCODE) { throw 'Capture test compilation failed' }
   & ./build/test_capture.exe
