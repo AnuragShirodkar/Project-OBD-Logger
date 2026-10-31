@@ -69,7 +69,19 @@
       "interval_ms": 10
     },
     {
+      "request": "01 30",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 31",
+      "interval_ms": 10
+    },
+    {
       "request": "01 33",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 41",
       "interval_ms": 10
     },
     {
@@ -81,7 +93,43 @@
       "interval_ms": 10
     },
     {
+      "request": "01 4A",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 4D",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 69",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 71",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 85",
+      "interval_ms": 10
+    },
+    {
       "request": "01 88",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 8F",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 9B",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 A2",
+      "interval_ms": 10
+    },
+    {
+      "request": "01 A5",
       "interval_ms": 10
     },
     {
@@ -206,6 +254,10 @@
     },
     {
       "request": "09 0B",
+      "interval_ms": 1000
+    },
+    {
+      "request": "09 17",
       "interval_ms": 1000
     },
     {
