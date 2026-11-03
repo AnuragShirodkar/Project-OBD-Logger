@@ -31,7 +31,9 @@ bool responseLedSeen=false;
 constexpr unsigned STOP_BUTTON_PIN=35;
 constexpr unsigned MODE4_BUTTON_PIN=40;
 bool stopRequested=false,sdMounted=false,fileTransferActive=false;
-unsigned nextLogIndex=0;
+extern "C" char loggerName[16];
+unsigned nextLogIndex=1;
+uint32_t configFingerprint=2166136261u;
 automatic::StopButton stopButton(3000);
 automatic::Mode4Button mode4Button;
 bool mode4Requested=false;
@@ -69,7 +71,7 @@ uint32_t sdWrites=0,sdWriteMaxUs=0,sdFailures=0,sdBytesUnwritten=0;
 char consoleQueue[32768];
 unsigned consoleHead=0,consoleTail=0,consoleCount=0;
 bool loggingFault=false;
-char obdName[24]={};
+char obdName[32]={};
 // A visible 150 ms pulse for a validated diagnostic reply, at most twice/second.
 // No delay(): CAN receive and SD logging continue while the LED is lit.
 void indicateResponse(){
@@ -153,7 +155,17 @@ bool fileWriteError(){return obdfile.getWriteError();}
 void flushFiles(){obdfile.flush();}
 void closeFiles(){obdfile.close();}
 bool writeHeaders(){
-  char header[160];obd::formatElapsedHeader(header,sizeof header);size_t n=strlen(header);
+  char header[320];
+  snprintf(header,sizeof header,"OBD-SkillLogger Version 1.0.0\nLogger: %s\nFile: %s\n",loggerName,obdName);
+  size_t used=strlen(header);
+  if(configGood){
+    snprintf(header+used,sizeof header-used,
+      "Config FNV1a: %08lX\nCAN: %lu bps, %u-bit, TX %lX, RX %lX (0 = functional response range)\nRequests: %u\n",
+      (unsigned long)configFingerprint,(unsigned long)config.bitrate,config.address.extended?29:11,
+      (unsigned long)config.address.tx,(unsigned long)config.address.rx,unsigned(config.count));
+  }else strcat(header,"Configuration unavailable or invalid\n");
+  strcat(header,"Trace time: elapsed milliseconds since power-on\n\n");
+  size_t n=strlen(header);
   return obdfile.write((const uint8_t*)header,n)==n;
 }
 void pumpLog(){
@@ -295,8 +307,8 @@ void exposeSD(){
   MTP.addFilesystem(SD,"SD card");MTP.reset();fileTransferActive=true;
 }
 bool openLogSegment(){
-  for(;nextLogIndex<10000;++nextLogIndex){
-    snprintf(obdName,sizeof obdName,"OBD%04u.TXT",nextLogIndex);
+  for(;nextLogIndex<1000000;++nextLogIndex){
+    snprintf(obdName,sizeof obdName,"%02u_%s.TXT",nextLogIndex,loggerName);
     if(!SD.exists(obdName)){
       obdfile=SD.open(obdName,FILE_WRITE);++nextLogIndex;
       if(obdfile)return true;
@@ -335,19 +347,12 @@ void setup(){
   if(sdMounted&&digitalRead(STOP_BUTTON_PIN)==LOW){
     finished=true;completedClean=true;exposeSD();return;
   }
-  if(sdMounted)sdGood=openLogSegment();
-  if(sdGood){
-    char header[160];obd::formatElapsedHeader(header,sizeof header);
-    queueConsole(header);
-    sdGood=writeHeaders();
-  }
-  if(!sdGood)queueConsole("SD_INIT_FAILED; requests disabled; use FAT32 SD in Teensy's built-in slot\n");
-  note("LOG_INFO","Time=uptime milliseconds; TX-CAN=mailbox submission");
-  note("BOOT","Teensy 4.1 CAN1 TX22 RX23; STB grounded; timestamps=uptime milliseconds");
-  if(sdGood){
+  if(sdMounted){
     File file=SD.open("config.json",FILE_READ);
     const char *reason="Missing config.json";
     if(file&&file.size()<=8192){
+      while(file.available()){int b=file.read();if(b<0)break;configFingerprint=(configFingerprint^uint8_t(b))*16777619u;}
+      file.seek(0);
       JsonDocument document;
       DeserializationError result=deserializeJson(document,file,DeserializationOption::NestingLimit(4));
       if(result)reason="Invalid JSON syntax";
@@ -362,6 +367,8 @@ void setup(){
     if(file)file.close();
     if(!configGood)note("CONFIG_ERROR",reason);
   }
+  if(sdMounted && openLogSegment())sdGood=writeHeaders();
+  if(!sdGood)queueConsole("SD_INIT_FAILED; requests disabled\n");
   if(configGood){
     captureMemory=static_cast<Captured*>(extmem_malloc(sizeof(Captured)*CAPTURE_CAPACITY));
     LogLine *largeLog=static_cast<LogLine*>(extmem_malloc(sizeof(LogLine)*4096));

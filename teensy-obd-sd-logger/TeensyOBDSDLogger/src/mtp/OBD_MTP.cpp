@@ -36,8 +36,9 @@
 #undef MTP_MODEL
 #undef MTP_NAME
 #define MTP_MANUF "OBD logger"
-#define MTP_MODEL "OBD logger"
-#define MTP_NAME "OBD logger"
+extern "C" char loggerName[16];
+#define MTP_MODEL loggerName
+#define MTP_NAME loggerName
 #include "MTP_Const.h"
 #undef USB_DESC_LIST_DEFINE
 #include "usb_desc.h"
