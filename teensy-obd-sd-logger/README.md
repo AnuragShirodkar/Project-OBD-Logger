@@ -10,38 +10,29 @@ This is a separate Arduino sketch. The original `teensy-obd-tester` files are un
 4. Power the ECU first, then Teensy. Normal CAN reception/acknowledgement begins after valid configuration and PSRAM checks. Startup support discovery begins after the demo configuration's 500 ms startup delay; configured polling begins after discovery. Logging continues until requested to stop, an optional duration expires, or a fault occurs.
 5. Stop using one of the controls below. The logger stops scheduling new requests, lets the active exchange finish, stops capture, drains buffers, and closes the file. SD-card access becomes available only after this shutdown.
 
-## Stop controls and Windows file access
+## OLED and Windows file access
 
-- **Button:** connect a normally-open momentary pushbutton between **Teensy pin 35 and GND**. An internal pull-up is enabled; no external pull-up resistor is needed. Hold for at least three seconds to request a stop. This is NOT the onboard Program button (which enters the bootloader).
-- **USB serial alternative:** send `stop` or `close` with a newline. These are control commands only; diagnostic requests still come from JSON. No Serial Monitor is needed if the external button is fitted.
-- **File-access-only boot:** hold pin 35's button while powering/resetting the board. After SD initialization, the firmware exposes the card without starting CAN, validating JSON, or creating a log. This also allows installing/fixing config.json over USB.
-- Connect a USB data cable to Windows. In normal firmware mode the USB product and MTP model/friendly name are **OBD logger**. After stop/file-access boot, open **This PC > OBD logger** and its SD storage to copy logs or replace config.json. MTP is a portable-device interface, not a drive letter; tools that require a normal disk path cannot use it directly. The storage volume may retain its existing SD volume label.
-- During logging the USB device can enumerate, but it advertises **no SD storage**. Live file browsing/editing is intentionally unavailable. USB connection/disconnection alone neither stops nor restarts logging. Once stopped, it stays stopped until reset/power-cycle.
-- Configuration edits take effect only on restart. Finish file transfers before disconnecting power or restarting. Use ordinary copy/replace in Explorer; do not restart while a JSON upload is incomplete.
-- MTP publishes a storage-added/reset event after stop. If Explorer cached an empty device, refresh it or reconnect USB after the stop. Windows may cache an earlier friendly name: reconnect the newly flashed device; if necessary remove its old portable-device entry in Device Manager and reconnect. The compiled descriptors and responder name are checked by the build; actual Explorer presentation still needs a Windows hardware test.
+Wire the SSD1306 128x32 I2C display to 3.3 V, GND, SDA 18 and SCL 19. Install Adafruit SSD1306 and its GFX and BusIO dependencies. Firmware probes 0x3C and 0x3D and can record without a display. Pin 40 is the only user button.
 
-The LED gives a short pulse for a matching diagnostic reply (including negative/pending replies), and is off after clean completion/file-access-only boot. A failed run blinks rapidly. The serial output says LOG_CLOSED on a clean stop. Wait for file access or completion before removing power.
+Windows identifies the portable device as OBD_<factory number>. During recording the device advertises no SD storage. Windows clients can enumerate devices independently and write config.json through MTP once the selected device exposes its SD storage. Restart after completing file transfers to load the new configuration.
+
+Send stop or close followed by a newline over USB serial for a deliberate stop. After a polling timeout and at least five seconds without a diagnostic reply, firmware checks the connection using Mode 01 PID 00. Two unanswered probes end the run. A reply resets the check. CAN bus-off or a transmission fault can end the run sooner. A stopped logger drains its buffers and closes the log before making a mounted card available over USB. An unmounted card cannot be exposed. Removing all power interrupts the processor immediately and can lose unflushed data.
+
+Bench check with separate USB power: record with the ECU connected, confirm Explorer cannot browse storage, disconnect CAN only, and wait for USB file access. Open the final file, check the stop reason, then replace config.json and reset the board. Repeat with the ECU absent at startup and with a single unsupported PID among responding requests.
 
 ## Manual Mode 04 button
 
-Connect a second normally-open button between **pin 40 and GND** (INPUT_PULLUP). While logging is active, hold it for **two seconds** to queue one Mode 04 request. Release before another activation. A button held at boot must first be released. The request waits for the current transaction and uses the configured CAN addressing, then normal polling resumes. Button activation, transmission, response/negative response or timeout are logged. Stop/file-access takes priority and cancels any queued manual request. Mode 04 can be queued during startup/discovery and is unavailable during file access and remains prohibited in automatic JSON jobs.
+Connect a normally-open button between **pin 40 and GND** (INPUT_PULLUP). While logging is active, hold it for **two seconds** to queue one Mode 04 request. Release before another activation. A button held at boot must first be released. The request waits for the current transaction and uses the configured CAN addressing, then normal polling resumes. Button activation, transmission, response/negative response or timeout are logged. Stop/file-access takes priority and cancels any queued manual request. Mode 04 can be queued during startup/discovery and is unavailable during file access and remains prohibited in automatic JSON jobs.
 
-Mode 04 clears emissions-related diagnostic information, including stored codes and freeze-frame information, and resets readiness information. With the default functional address 7DF, the request is not limited to one ECU. Use the button deliberately. Pin 35's file-access-only boot shortcut still works immediately when held at power-up; the three-second hold applies during normal operation.
+Mode 04 clears emissions-related diagnostic information, including stored codes and freeze-frame information, and resets readiness information. With the default functional address 7DF, the request is not limited to one ECU. Use the button deliberately.
 
 ## Long runs
 
 ### Elapsed time, without an RTC
 
-Each SD log explicitly declares `Time: elapsed milliseconds since power-on` and
-`Calendar date: unavailable (no time sync)`. All existing numeric CAN, payload and
-event timestamps remain milliseconds from the same power-on origin. For example,
-3632 means 3.632 seconds after startup. They do not restart when a file rotates;
-a power-cycle starts a new time base. The 32-bit millisecond counter wraps after
-approximately 49.7 days. No RTC or PC time synchronization is required. Windows
-file dates remain filesystem metadata and must not be used as recording dates.
-Existing log files are not rewritten.
+The header contains firmware version, hardware ID, filename, configuration fingerprint, bitrate, addressing and configured request count when the configuration is valid. Elapsed milliseconds remain on trace lines. The header omits calendar timestamps. Windows filesystem timestamps are separate.
 
-Each text log is capped at **250 MB (250,000,000 bytes, including the header)**. Before a buffered write would exceed the limit, the logger flushes/closes the current file and opens the next unused OBDxxxx.TXT file. A segment may therefore finish a few kilobytes below the limit. Capture interrupts continue and PSRAM buffers incoming frames during rotation. Counters continue across segments, and each new file gets the standard header. Rotation can occur during an exchange (or a long text payload), so read consecutive files in order for complete transactions. Files are never overwritten. A flush/open/header/write failure stops logging; existing files are retained. Exhausting storage or all 10,000 filenames also stops logging.
+Each text log is capped at **250 MB (250,000,000 bytes, including the header)**. Before a buffered write would exceed the limit, the logger flushes/closes the current file and opens the next unused <sequence>_OBD_<factory number>.TXT file. A segment may therefore finish a few kilobytes below the limit. Capture interrupts continue and PSRAM buffers incoming frames during rotation. Counters continue across segments, and each new file gets the standard header. Rotation can occur during an exchange (or a long text payload), so read consecutive files in order for complete transactions. Files are never overwritten. A flush/open/header/write failure stops logging; existing files are retained. Exhausting storage or the sequence through 999999 also stops logging.
 
 The old manual firmware and installed board libraries are not modified. The local MTP responder is tied to the 1.62.0 core API; revalidate when upgrading Teensy support.
 
@@ -134,7 +125,7 @@ Logs contain DISCOVERY_START, DISCOVERY_SEND (mode/range/attempt), DISCOVERY_MAP
 
 Discovery supplies expected-responder sets for faster polling and filters the configured schedule before polling starts. Discovery runs on every restart and adds startup time (at least 560 ms for eight base transactions at the default 70 ms window, plus response collection extensions and advertised ranges). Timed polling duration starts after discovery. A no-response discovery completes with unknown results unless a CAN/SD fault stops the run.
 
-Pin 35 / USB stop works during discovery and waits for an active transaction before closing the log. Mode 04 waits until discovery completes before transmission. Holding pin 35 at boot still bypasses CAN and enters USB file access directly. For the bench check, power the ECU first, then Teensy, wait for DISCOVERY_DONE and RUN_START, stop normally, and inspect the per-ECU support summary. Hardware validation is still pending.
+USB serial stop works during discovery and waits for an active transaction before closing the log. Mode 04 waits until discovery completes before transmission. Holding pin 35 at boot still bypasses CAN and enters USB file access directly. For the bench check, power the ECU first, then Teensy, wait for DISCOVERY_DONE and RUN_START, stop normally, and inspect the per-ECU support summary. Hardware validation is still pending.
 
 ## Fast-polling bench acceptance
 
@@ -152,33 +143,19 @@ The log contains no reference-tool branding. New output uses seven-column event 
 
 ## Single readable OBD file
 
-Each recording now creates only **OBDxxxx.TXT**, with the requested diagnostic exchange layout. AUTO files are no longer created; existing files on the SD card are left untouched. Full unrelated bus traffic is intentionally no longer saved. The logger still receives/processes it for controller operation and capture health, so captured-frame counters exceed the diagnostic RX lines exported to the file.
+Each recording now creates only **<sequence>_OBD_<factory number>.TXT**, with the requested diagnostic exchange layout. AUTO files are no longer created; existing files on the SD card are left untouched. Full unrelated bus traffic is intentionally no longer saved. The logger still receives/processes it for controller operation and capture health, so captured-frame counters exceed the diagnostic RX lines exported to the file.
 
 The sole log includes diagnostic requests, flow-control frames, response-address frames during active transactions, assembled responses, timeouts, negative-response explanations, button actions, faults and final health counters. Periodic scheduler/debug records go to Serial Monitor only. Stop flushes and closes the OBD file before USB access. Rotation creates a new unused OBD filename before a write would exceed 250 MB. No JSON change is required.
 
 This change does not establish that the previously reported malformed transferred records are resolved. Verify the next OBD file after a clean stop.
 
-## Mode 04 button feedback
+## Mode 04 feedback on the OLED
 
-Pin 40 uses INPUT_PULLUP: connect a normally-open button between **pin 40 and GND**. A stable press lights the onboard LED and records MODE04_PRESSED. Hold for two seconds (plus 30 ms debounce) to record MODE04_QUEUED; the request is sent after discovery and the active transaction finish, with MODE04_SEND followed by the request/response block. The button must be released before another activation. A button held during boot must first be released; a short press does not clear codes. Stop/fault cancels queued clears, and file-access mode never transmits.
-
-Earlier firmware silently consumed holds that completed during discovery. Those holds now queue instead. This fixes a software path, but cannot confirm physical button wiring. If the LED does not light or MODE04_PRESSED never appears while logging, verify the pin number and the switch's two separate contact groups. MODE04_SEND with a negative response or timeout means the button worked but clearing was not confirmed by the ECU. Mode 04 clears emissions diagnostic data and may be rejected under the current ECU conditions.
-
-
-### External status LEDs and Mode 04 confirmation
-
-Connect each LED anode through its own 440 ohm (two 220 ohm in series) or 470 ohm resistor to the assigned pin, and its cathode to GND.
-
-- Pin 4, green READY: blinks while waiting for the first validated diagnostic response, then stays on during the session. This records communication established, not a continuous connection watchdog.
-- Pin 5, yellow RECORD: on during automatic polling; blinks while stopping/saving. Mode 04 feedback temporarily overrides this indication.
-- Pin 6, blue USB: on when the closed SD card is exposed through MTP.
-- Pin 7, red ALERT: steady for a logger fault. Low-space advance warning is not implemented yet.
-
-Hold the Mode 04 button on pin 40 to GND for two seconds. Yellow blinks while the request is queued or awaiting completion. A successful exchange gives three slow yellow flashes (500 ms on, 500 ms off). Rejection, timeout, cancellation, malformed reply, or incomplete confirmation gives three quick red flashes (150 ms on, 150 ms off). A persistent logger fault takes priority and keeps red on. Feedback uses no delays; logging continues. A new clear request is ignored while another clear request or its feedback is active; release and press again afterwards.
+A two-second hold on pin 40 queues the clear. The OLED shows pending, confirmed or unconfirmed. Release the button before another activation.
 
 Success requires an exact assembled `44` reply from every ECU discovered at startup (or the configured physical response ID), with no negative reply or transport error. Discovery overflow or an empty inventory cannot produce a success indication. This conservative inventory can include ECUs that do not support clearing: red means **not confirmed for all expected ECUs**, not that none cleared. Pending `7F 04 78` is not a rejection; the existing diagnostic deadlines still apply. Existing response timing is unchanged.
 
-The log and Serial Monitor record `MODE04_ECU` with each responder ID and response type, followed by `MODE04_CONFIRMED` or `MODE04_NOT_CONFIRMED`. The normal RX lines retain the reply bytes/NRC. Confirmation means the ECU accepted the clearing request, not that the underlying fault was repaired. Validate all four LEDs and an accepted/rejected clear on the spare ECU before deployment.
+The log and Serial Monitor record `MODE04_ECU` with each responder ID and response type, followed by `MODE04_CONFIRMED` or `MODE04_NOT_CONFIRMED`. The normal RX lines retain the reply bytes/NRC. Confirmation means the ECU accepted the clearing request, not that the underlying fault was repaired. Validate the OLED states and an accepted/rejected clear on the spare ECU before deployment.
 
 
 ### Supported-PID filtering (spare-ECU bench validation)

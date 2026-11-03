@@ -1,5 +1,7 @@
 #include <FlexCAN_T4.h>
 #include <SD.h>
+#include <Wire.h>
+#include <Adafruit_SSD1306.h>
 #include "DiagnosticCore.h"
 #include "LogReport.h"
 #include "TraceFormat.h"
@@ -12,7 +14,12 @@
 #include "LogRotation.h"
 #include "Readiness.h"
 automatic::Mode4Feedback mode4Feedback;
-constexpr unsigned READY_LED_PIN=4, RECORD_LED_PIN=5, USB_LED_PIN=6, ALERT_LED_PIN=7;
+Adafruit_SSD1306 oled(128,32,&Wire,-1);
+bool oledReady=false;
+bool connectionProbe=false, probeNeeded=false;
+unsigned missedProbes=0;
+uint32_t lastContact=0;
+const char *stopDisplay="Stopped";
 automatic::Discovery discovery;
 automatic::RequestSpacing requestSpacing;
 bool discoveryStarted=false;
@@ -26,15 +33,12 @@ automatic::Config config;
 automatic::Schedule schedule;
 bool configGood=false, running=false, finished=false, closing=false, completedClean=false;
 uint32_t runStart=0, setupAt=0, summaryAt=0;
-uint32_t responseLedAt=0;
-bool responseLedSeen=false;
-constexpr unsigned STOP_BUTTON_PIN=35;
+bool responseSeen=false;
 constexpr unsigned MODE4_BUTTON_PIN=40;
 bool stopRequested=false,sdMounted=false,fileTransferActive=false;
 extern "C" char loggerName[16];
 unsigned nextLogIndex=1;
 uint32_t configFingerprint=2166136261u;
-automatic::StopButton stopButton(3000);
 automatic::Mode4Button mode4Button;
 bool mode4Requested=false;
 // MTP debug output must not block on an unattended serial console.
@@ -72,15 +76,6 @@ char consoleQueue[32768];
 unsigned consoleHead=0,consoleTail=0,consoleCount=0;
 bool loggingFault=false;
 char obdName[32]={};
-// A visible 150 ms pulse for a validated diagnostic reply, at most twice/second.
-// No delay(): CAN receive and SD logging continue while the LED is lit.
-void indicateResponse(){
-  uint32_t now=millis();
-  if(!responseLedSeen||uint32_t(now-responseLedAt)>=500){
-    responseLedAt=now;responseLedSeen=true;
-  }
-}
-
 void queueConsole(const char *s);
 void obdWrite(const char *text){
   if(logCount==logCapacity){++logDrops;loggingFault=true;return;}
@@ -242,12 +237,20 @@ public:
     note("TX_FAILED","No free hardware mailbox");return false;
   }
   void event(const char *kind,uint32_t id,const uint8_t *p,size_t n)override{
+    if(n){
+      lastContact=millis();missedProbes=0;probeNeeded=false;
+    }
+    if(!strcmp(kind,"NO_RESPONSE_TIMEOUT")){
+      if(connectionProbe)++missedProbes;
+      if(uint32_t(millis()-lastContact)>=5000)probeNeeded=true;
+    }
+    if(!strcmp(kind,"REQUEST_END"))connectionProbe=false;
     if(mode4Feedback.active){
       if(!strcmp(kind,"REQUEST_END")||!strcmp(kind,"CANCELLED")){
         if(!strcmp(kind,"CANCELLED"))mode4Feedback.observe(kind,id,p,n);
         bool ok=mode4Feedback.finish(millis());
         note(ok?"MODE04_CONFIRMED":"MODE04_NOT_CONFIRMED",ok?
-          "All expected ECUs replied 44; yellow flashes three times":
+          "All expected ECUs replied 44":
           "Rejected, missing/invalid reply, cancelled, or unknown ECU inventory; check per-ECU trace");
       }else {
         mode4Feedback.observe(kind,id,p,n);
@@ -255,7 +258,7 @@ public:
           recordAt(millis(),"MODE04_ECU",id,kind);
       }
     }
-    if(n&&(!strcmp(kind,"POSITIVE")||!strcmp(kind,"NEGATIVE")||!strcmp(kind,"RESPONSE_PENDING")))indicateResponse();
+    if(n&&(!strcmp(kind,"POSITIVE")||!strcmp(kind,"NEGATIVE")||!strcmp(kind,"RESPONSE_PENDING")))responseSeen=true;
     if(!n){
       if(!strcmp(kind,"REQUEST_END")){
         if(!traceExchangeShown)traceExchangeRequest(millis());
@@ -318,7 +321,6 @@ bool openLogSegment(){
   return false;
 }
 void pollStop(){
-  if(stopButton.update(digitalRead(STOP_BUTTON_PIN)==LOW,millis()))stopRequested=true;
   unsigned buttonEvents=mode4Button.update(digitalRead(MODE4_BUTTON_PIN)==LOW,millis());
   if(buttonEvents&automatic::Mode4Button::Pressed)note("MODE04_PRESSED","Pin 40 LOW detected; hold for 2 seconds");
   if(buttonEvents&automatic::Mode4Button::Released)note("MODE04_RELEASED","Pin 40 HIGH; button armed for next press");
@@ -340,13 +342,17 @@ void pollStop(){
 }
 void setup(){
   Serial.begin(115200);
-  pinMode(STOP_BUTTON_PIN,INPUT_PULLUP);pinMode(MODE4_BUTTON_PIN,INPUT_PULLUP);MTP.PrintStream(&mtpDebug);MTP.begin();
-  for(unsigned pin: {READY_LED_PIN,RECORD_LED_PIN,USB_LED_PIN,ALERT_LED_PIN}){pinMode(pin,OUTPUT);digitalWrite(pin,LOW);}
-  pinMode(LED_BUILTIN,OUTPUT);digitalWrite(LED_BUILTIN,LOW);
-  sdMounted=SD.begin(BUILTIN_SDCARD);
-  if(sdMounted&&digitalRead(STOP_BUTTON_PIN)==LOW){
-    finished=true;completedClean=true;exposeSD();return;
+  pinMode(MODE4_BUTTON_PIN,INPUT_PULLUP);
+  MTP.PrintStream(&mtpDebug);MTP.begin();
+  Wire.begin();
+  for(uint8_t address=0x3C;address<=0x3D;++address){
+    Wire.beginTransmission(address);
+    if(Wire.endTransmission()==0){
+      oledReady=oled.begin(SSD1306_SWITCHCAPVCC,address,false,false);
+      break;
+    }
   }
+  sdMounted=SD.begin(BUILTIN_SDCARD);
   if(sdMounted){
     File file=SD.open("config.json",FILE_READ);
     const char *reason="Missing config.json";
@@ -435,20 +441,32 @@ void stopRun(const char *reason){
     unsigned((boundaryFlags&FLEXCAN_IFLAG1_BUF5I)!=0));note("CAPTURE_STOP",boundary);
   note("STOP",reason);obdStatus(reason);closing=true;
 }
-void updateStatusLeds(){
-  uint32_t now=millis();mode4Feedback.update(now);
-  bool fault=loggingFault||(finished&&!completedClean)||(closing&&!configGood);
-  digitalWrite(READY_LED_PIN,!finished&&!closing&&configGood&&(responseLedSeen||((now/500)%2==0)));
-  digitalWrite(RECORD_LED_PIN,mode4Feedback.yellow(now,!finished&&sdGood&&(closing||stopRequested?((now/250)%2==0):running)));
-  digitalWrite(USB_LED_PIN,fileTransferActive);
-  digitalWrite(ALERT_LED_PIN,mode4Feedback.red(now,fault));
+void updateDisplay(){
+  uint32_t now=millis();
+  mode4Feedback.update(now);
+  if(!oledReady)return;
+  const char *status=closing?"Saving log":running?"Recording":"Finding ECU";
+  if(finished)status=sdMounted?"USB file access":"No SD card";
+  else if(!closing){
+    if(mode4Button.holding())status="Hold to clear";
+    if(mode4Feedback.phase==automatic::Mode4Feedback::Waiting)status="Clear pending";
+    if(mode4Feedback.phase==automatic::Mode4Feedback::Success)status="Clear confirmed";
+    if(mode4Feedback.phase==automatic::Mode4Feedback::Failure)status="Clear unconfirmed";
+  }
+  const char *detail=finished?(completedClean?stopDisplay:"Run failed"):
+    closing?"Closing file":responseSeen?"ECU responded":"Waiting for ECU";
+  static const char *previousStatus=nullptr,*previousDetail=nullptr;
+  if(status==previousStatus && detail==previousDetail)return;
+  previousStatus=status;previousDetail=detail;
+  oled.clearDisplay();oled.setTextSize(1);oled.setTextColor(SSD1306_WHITE);
+  oled.setCursor(0,0);oled.println(loggerName);oled.println(status);oled.println(detail);
+  oled.println(finished?(fileTransferActive?"SD available":"SD unavailable"):"USB SD locked");
+  oled.display();
 }
 void loop(){
-  updateStatusLeds();
-  // No SD filesystem is advertised while capture/logging owns it.
-  if(finished){MTP.loop();if(!completedClean)digitalWrite(LED_BUILTIN,(millis()/250)%2);pumpConsole();return;}
+  updateDisplay();
+  if(finished){MTP.loop();pumpConsole();return;}
   pollStop();
-  digitalWrite(LED_BUILTIN,!closing&&(mode4Button.holding()||(running&&responseLedSeen&&uint32_t(millis()-responseLedAt)<150)) ? HIGH : LOW);
   Captured c;
   if(configGood){
     // Reserve space for decoded messages; RX remains buffered during slow SD writes.
@@ -519,18 +537,25 @@ void loop(){
           snprintf(b,sizeof b,"configured=%u enabled=%u skipped=%u; unknown support retained",
             unsigned(config.count),unsigned(enabledCount),unsigned(config.count-enabledCount));note("PID_FILTER_SUMMARY",b);
           obdStatus(discovery.count?"Discovery complete":"Discovery complete: no ECU detected");
-          runStart=millis();running=true;
+          if(!enabledCount){stopDisplay="No enabled requests";stopRun(stopDisplay);return;}
+          runStart=millis();lastContact=runStart;running=true;
           schedule.begin(config.jobs,config.count,runStart);note("RUN_START","One transaction at a time; late periods skipped, never replayed");
         }
       }
       now=millis();
       if(running){
-        if(stopRequested||automatic::durationReached(config.duration,runStart,now)){
+        if(missedProbes>=2){
+          stopDisplay="ECU disconnected";stopRun(stopDisplay);
+        }else if(stopRequested||automatic::durationReached(config.duration,runStart,now)){
           // Stop scheduling at the duration boundary; let the active exchange finish (up to 10 s).
           if(!diagnostics.busy())stopRun(stopRequested?"User requested stop":"Configured duration finished");
 
         }else if(!diagnostics.busy()&&captureRing.size()==0&&requestSpacing.ready(millis())){
-          if(mode4Requested){
+          if(probeNeeded){
+            const uint8_t probe[]={0x01,0x00};
+            connectionProbe=true;probeNeeded=false;++transaction;
+            if(!startRequest(probe,sizeof probe)){loggingFault=true;stopRun("Connection probe TX failed");}
+          }else if(mode4Requested){
             mode4Requested=false;++transaction;
             const uint8_t request[]={0x04};
             note("MODE04_SEND","Sending clear request from pin 40 button; ECU may accept or reject");
@@ -573,7 +598,7 @@ void loop(){
     writeBatch();
     bool ok=configGood&&sdGood&&!loggingFault;
     if(obdfile){flushFiles();ok=ok&&!fileWriteError();closeFiles();}
-    completedClean=ok;sdGood=false;finished=true;exposeSD();digitalWrite(LED_BUILTIN,LOW);
+    completedClean=ok;sdGood=false;finished=true;exposeSD();
     queueConsole(ok?"LOG_CLOSED; run complete\n":"RUN_FAILED; check SD/log and reset\n");pumpConsole();
   }
 }
