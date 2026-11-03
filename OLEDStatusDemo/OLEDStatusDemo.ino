@@ -72,9 +72,15 @@ void loop() {
   oled.print(stage.sdUsedPercent);
   oled.print('%');
 
-  oled.drawFastHLine(0, 10, 128, SSD1306_WHITE);
+  // Simulate a changing frame rate, using 400 frames/s as the demo scale.
+  const int phase = (elapsed / 200) % 12;
+  const int wave = (phase <= 6 ? phase : 12 - phase) - 3;
+  const unsigned rate = stage.framesPerSecond * (100 + 4 * wave) / 100;
+  const unsigned fill = min(rate, 400u) * 126 / 400;
+  oled.drawRect(0, 9, 128, 4, SSD1306_WHITE);
+  if (fill) oled.fillRect(1, 10, fill, 2, SSD1306_WHITE);
   char traffic[22];
-  snprintf(traffic, sizeof(traffic), "Traffic %u frames/s", stage.framesPerSecond);
+  snprintf(traffic, sizeof(traffic), "Traffic %u frames/s", rate);
   oled.setCursor((128 - 6 * strlen(traffic)) / 2, 13);
   oled.print(traffic);
   oled.setCursor(0, 24);
