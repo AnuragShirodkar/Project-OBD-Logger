@@ -5,48 +5,39 @@
 
 Adafruit_SSD1306 oled(128, 32, &Wire, -1);
 
-enum Pattern : uint8_t { Off, On, Slow, Fast, ThreeQuick, ReplyPulse };
 struct Stage {
   const char *status;
-  const char *diagnostic;
-  Pattern icons[5];  // READY, RECORD, USB, ALERT, onboard activity
+  const char *mode;
+  bool linked;
+  unsigned framesPerSecond;  // Simulated bus traffic.
+  unsigned sdUsedPercent;
 };
 
 const Stage stages[] = {
-  {"Waiting for ECU", "Discover 01 00", {Slow}},
-  {"ECU ready", "PID map  01 00", {On, Off, Off, Off, ReplyPulse}},
-  {"Recording", "RPM PID  01 0C", {On, On}},
-  {"Reply received", "RPM RX   41 0C", {On, On, Off, Off, ReplyPulse}},
-  {"Mode 04 held", "Clear DTCs  04", {On, On, Off, Off, On}},
-  {"Clear queued", "Clear DTCs  04", {On, Fast}},
-  {"Clear sent", "Clear TX    04", {On, Fast}},
-  {"Clear confirmed", "Clear RX    44", {On, Slow}},
-  {"Clear unconfirmed", "Check clear 04", {On, Off, Off, ThreeQuick}},
-  {"Saving log", "OBD log to SD", {Off, Fast}},
-  {"Log closed", "OBD log closed", {}},
-  {"USB file access", "Browse OBD log", {Off, Off, On}},
-  {"SD write fault", "OBD log error", {Off, Off, Off, On, Fast}}
+  {"Waiting for ECU", "01", false, 18, 74},
+  {"ECU connected", "01", true, 126, 74},
+  {"OBD logging", "01", true, 342, 75},
+  {"ECU reply received", "01", true, 356, 75},
+  {"Clear button held", "01", true, 321, 75},
+  {"Clear queued", "01", true, 318, 75},
+  {"Clear sent", "04", true, 308, 75},
+  {"Clear confirmed", "04", true, 312, 75},
+  {"Clear unconfirmed", "04", true, 298, 75},
+  {"Saving log", "--", false, 0, 75},
+  {"Log completed", "--", false, 0, 75},
+  {"USB file access", "--", false, 0, 75},
+  {"Error: SD write", "--", false, 0, 75}
 };
 
-// One byte per row: signal bars, SD card, USB, warning triangle, envelope.
-const uint8_t glyphs[][8] = {
-  {0x01,0x01,0x05,0x05,0x15,0x15,0x55,0x55},
-  {0x3e,0x6a,0xca,0x82,0xba,0xba,0x82,0xfe},
-  {0x10,0x38,0x10,0x52,0x54,0x38,0x10,0x38},
-  {0x18,0x18,0x24,0x24,0x52,0x42,0x99,0xff},
-  {0x00,0xff,0xc3,0xa5,0x99,0x81,0xff,0x00}
-};
-
-bool lit(Pattern pattern, unsigned ms) {
-  switch (pattern) {
-    case On: return true;
-    case Slow: return ms / 500 % 2 == 0;
-    case Fast: return ms / 250 % 2 == 0;
-    case ThreeQuick: return ms < 900 && ms / 150 % 2 == 0;
-    case ReplyPulse: return ms % 1000 < 150;
-    default: return false;
-  }
+// Two horizontal chain links, joined or separated at the center.
+void drawLink(bool linked) {
+  int gap = linked ? 0 : 4;
+  oled.drawRoundRect(0, 1, 7, 5, 2, SSD1306_WHITE);
+  oled.drawRoundRect(5 + gap, 3, 7, 5, 2, SSD1306_WHITE);
+  if (linked) oled.drawLine(4, 3, 8, 5, SSD1306_WHITE);
 }
+
+const uint8_t sdIcon[] = {0x3e,0x6a,0xca,0x82,0xba,0xba,0x82,0xfe};
 void setup() {
   Serial.begin(115200);
   Wire.begin();
@@ -68,26 +59,26 @@ void loop() {
   const uint32_t elapsed = millis();
   const size_t stageCount = sizeof(stages) / sizeof(stages[0]);
   const Stage &stage = stages[(elapsed / 3000) % stageCount];
-  const Pattern ready = stage.icons[0];
   oled.clearDisplay();
   oled.setTextColor(SSD1306_WHITE);
-  oled.setCursor(0, 0);
-  oled.print(ready == On ? "ECU LINKED" : ready == Slow ? "ECU WAIT" : "ECU IDLE");
-  oled.setCursor(74, 0);
-  oled.print("500 kbps");
+  drawLink(stage.linked);
+  oled.setCursor(18, 0);
+  oled.print("J1979");
+  oled.setCursor(51, 0);
+  oled.print("Mode-");
+  oled.print(stage.mode);
+  oled.drawBitmap(97, 0, sdIcon, 8, 8, SSD1306_WHITE);
+  oled.setCursor(108, 0);
+  oled.print(stage.sdUsedPercent);
+  oled.print('%');
 
-  oled.setCursor(0, 8);
-  oled.print("ISO 15765-4 11b  DEMO");
-  oled.setCursor(0, 16);
-  oled.print(stage.diagnostic);
-  for (unsigned i = 0; i < 5; ++i) {
-    if (lit(stage.icons[i], elapsed % 3000)) {
-      oled.drawBitmap(84 + i * 9, 16, glyphs[i], 8, 8, SSD1306_WHITE);
-    }
-  }
+  oled.drawFastHLine(0, 10, 128, SSD1306_WHITE);
+  char traffic[22];
+  snprintf(traffic, sizeof(traffic), "Traffic %u frames/s", stage.framesPerSecond);
+  oled.setCursor((128 - 6 * strlen(traffic)) / 2, 13);
+  oled.print(traffic);
   oled.setCursor(0, 24);
-  oled.print("LOG ");
   oled.print(stage.status);
   oled.display();
-  delay(50);
+  delay(100);
 }
