@@ -14,19 +14,19 @@ struct Stage {
 };
 
 const Stage stages[] = {
-  {"Waiting for ECU", "01", false, 18, 74},
-  {"ECU connected", "01", true, 126, 74},
-  {"OBD logging", "01", true, 342, 75},
-  {"ECU reply received", "01", true, 356, 75},
-  {"Clear button held", "01", true, 321, 75},
-  {"Clear queued", "01", true, 318, 75},
-  {"Clear sent", "04", true, 308, 75},
-  {"Clear confirmed", "04", true, 312, 75},
-  {"Clear unconfirmed", "04", true, 298, 75},
-  {"Saving log", "--", false, 0, 75},
-  {"Log completed", "--", false, 0, 75},
-  {"USB file access", "--", false, 0, 75},
-  {"Error: SD write", "--", false, 0, 75}
+  {"FIND ECU", "01", false, 18, 74},
+  {"ECU READY", "01", true, 126, 74},
+  {"RECORDING", "01", true, 342, 75},
+  {"ECU REPLY", "01", true, 356, 75},
+  {"HOLD CLEAR", "01", true, 321, 75},
+  {"QUEUED", "01", true, 318, 75},
+  {"CLEAR SENT", "04", true, 308, 75},
+  {"CLEAR OK", "04", true, 312, 75},
+  {"UNVERIFIED", "04", true, 298, 75},
+  {"SAVING", "--", false, 0, 75},
+  {"LOG CLOSED", "--", false, 0, 75},
+  {"USB FILES", "--", false, 0, 75},
+  {"SD ERROR", "--", false, 0, 75}
 };
 
 // Two horizontal chain links, joined or separated at the center.
@@ -61,12 +61,16 @@ void loop() {
   const Stage &stage = stages[(elapsed / 3000) % stageCount];
   oled.clearDisplay();
   oled.setTextColor(SSD1306_WHITE);
+  oled.setTextSize(1);
   drawLink(stage.linked);
   oled.setCursor(18, 0);
   oled.print("J1979");
-  oled.setCursor(51, 0);
-  oled.print("Mode-");
+  oled.fillRoundRect(54, 0, 34, 9, 2, SSD1306_WHITE);
+  oled.setTextColor(SSD1306_BLACK);
+  oled.setCursor(56, 1);
+  oled.print("M:");
   oled.print(stage.mode);
+  oled.setTextColor(SSD1306_WHITE);
   oled.drawBitmap(97, 0, sdIcon, 8, 8, SSD1306_WHITE);
   oled.setCursor(108, 0);
   oled.print(stage.sdUsedPercent);
@@ -76,15 +80,24 @@ void loop() {
   const int phase = (elapsed / 200) % 12;
   const int wave = (phase <= 6 ? phase : 12 - phase) - 3;
   const unsigned rate = stage.framesPerSecond * (100 + 4 * wave) / 100;
-  const unsigned fill = min(rate, 400u) * 126 / 400;
-  oled.drawRect(0, 9, 128, 4, SSD1306_WHITE);
-  if (fill) oled.fillRect(1, 10, fill, 2, SSD1306_WHITE);
-  char traffic[22];
-  snprintf(traffic, sizeof(traffic), "Traffic %u frames/s", rate);
-  oled.setCursor((128 - 6 * strlen(traffic)) / 2, 13);
-  oled.print(traffic);
-  oled.setCursor(0, 24);
+  // The status is the focal point. Keep every title within ten large glyphs.
+  oled.setTextSize(2);
+  oled.setCursor((128 - 12 * strlen(stage.status)) / 2, 10);
   oled.print(stage.status);
+
+  // Rising segments form a small instrument scale; dim baseline dots stay
+  // visible at rest. Each illuminated segment represents 25 frames/s.
+  const unsigned segments = (min(rate, 400u) + 24) / 25;
+  for (unsigned i = 0; i < 16; ++i) {
+    const int x = i * 5;
+    const int height = 2 + i / 3;
+    if (i < segments) oled.fillRect(x, 32 - height, 4, height, SSD1306_WHITE);
+    else oled.drawPixel(x + 1, 31, SSD1306_WHITE);
+  }
+  oled.setTextSize(1);
+  oled.setCursor(86, 25);
+  oled.print(rate);
+  oled.print(" f/s");
   oled.display();
   delay(100);
 }
