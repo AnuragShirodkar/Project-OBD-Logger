@@ -13,19 +13,19 @@ struct Stage {
 };
 
 const Stage stages[] = {
-  {"Waiting for ECU", 0, {Slow}},
-  {"ECU ready", 3, {On, Off, Off, Off, ReplyPulse}},
-  {"Recording", 8, {On, On}},
-  {"Reply received", 12, {On, On, Off, Off, ReplyPulse}},
-  {"Mode 04 held", 5, {On, On, Off, Off, On}},
-  {"Clear queued", 6, {On, Fast}},
-  {"Clear sent", 4, {On, Fast}},
-  {"Clear confirmed", 9, {On, Slow}},
-  {"Clear unconfirmed", 7, {On, Off, Off, ThreeQuick}},
-  {"Saving log", 0, {Off, Fast}},
-  {"Log closed", 0, {}},
-  {"USB file access", 0, {Off, Off, On}},
-  {"SD write fault", 0, {Off, Off, Off, On, Fast}}
+  {"Waiting for ECU", "Discover 01 00", {Slow}},
+  {"ECU ready", "PID map  01 00", {On, Off, Off, Off, ReplyPulse}},
+  {"Recording", "RPM PID  01 0C", {On, On}},
+  {"Reply received", "RPM RX   41 0C", {On, On, Off, Off, ReplyPulse}},
+  {"Mode 04 held", "Clear DTCs  04", {On, On, Off, Off, On}},
+  {"Clear queued", "Clear DTCs  04", {On, Fast}},
+  {"Clear sent", "Clear TX    04", {On, Fast}},
+  {"Clear confirmed", "Clear RX    44", {On, Slow}},
+  {"Clear unconfirmed", "Check clear 04", {On, Off, Off, ThreeQuick}},
+  {"Saving log", "OBD log to SD", {Off, Fast}},
+  {"Log closed", "OBD log closed", {}},
+  {"USB file access", "Browse OBD log", {Off, Off, On}},
+  {"SD write fault", "OBD log error", {Off, Off, Off, On, Fast}}
 };
 
 // One byte per row: signal bars, SD card, USB, warning triangle, envelope.
