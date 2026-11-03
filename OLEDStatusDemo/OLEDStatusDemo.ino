@@ -8,7 +8,7 @@ Adafruit_SSD1306 oled(128, 32, &Wire, -1);
 enum Pattern : uint8_t { Off, On, Slow, Fast, ThreeQuick, ReplyPulse };
 struct Stage {
   const char *status;
-  uint8_t framesPerTick;
+  const char *diagnostic;
   Pattern icons[5];  // READY, RECORD, USB, ALERT, onboard activity
 };
 
@@ -66,45 +66,28 @@ void setup() {
 
 void loop() {
   const uint32_t elapsed = millis();
-  const uint32_t tick = elapsed / 250;
-  static uint32_t previousTick = UINT32_MAX;
-  static uint32_t frames = 0;
   const size_t stageCount = sizeof(stages) / sizeof(stages[0]);
-  const size_t index = (tick / 12) % stageCount;
-  const Stage &stage = stages[index];
-  if (index == 0) frames = 0;
-  const unsigned activity = stage.framesPerTick ? stage.framesPerTick + tick % 3 : 0;
-  if (tick != previousTick) frames += activity;
-  previousTick = tick;
-
-  // Reference-style simulated date/time, restarting with each demo session.
-  const unsigned seconds = 11 * 3600 + 24 * 60 + 32 + (tick / 4) % (stageCount * 3);
-  char clockText[16];
-  snprintf(clockText, sizeof(clockText), "16/04 %02u:%02u:%02u",
-           seconds / 3600, seconds / 60 % 60, seconds % 60);
+  const Stage &stage = stages[(elapsed / 3000) % stageCount];
+  const Pattern ready = stage.icons[0];
   oled.clearDisplay();
   oled.setTextColor(SSD1306_WHITE);
   oled.setCursor(0, 0);
-  oled.print(clockText);
+  oled.print(ready == On ? "ECU LINKED" : ready == Slow ? "ECU WAIT" : "ECU IDLE");
+  oled.setCursor(74, 0);
+  oled.print("500 kbps");
+
+  oled.setCursor(0, 8);
+  oled.print("ISO 15765-4 11b  DEMO");
+  oled.setCursor(0, 16);
+  oled.print(stage.diagnostic);
   for (unsigned i = 0; i < 5; ++i) {
-    if (lit(stage.icons[i], elapsed % 3000)) oled.drawBitmap(84 + i * 9, 0, glyphs[i], 8, 8, SSD1306_WHITE);
+    if (lit(stage.icons[i], elapsed % 3000)) {
+      oled.drawBitmap(84 + i * 9, 16, glyphs[i], 8, 8, SSD1306_WHITE);
+    }
   }
-  oled.setCursor(72, 10);
-  oled.print("DM");  // Bench demo marker
-
-  oled.setCursor(0, 10);
-  oled.print("CAN1   500k");
-  char countText[12];
-  snprintf(countText, sizeof(countText), "%lu", (unsigned long)frames);
-  oled.setCursor(128 - 6 * strlen(countText), 10);
-  oled.print(countText);
-  oled.drawRect(0, 18, 128, 4, SSD1306_WHITE);
-  oled.fillRect(1, 19, activity * 9, 2, SSD1306_WHITE);
-
   oled.setCursor(0, 24);
   oled.print("LOG ");
   oled.print(stage.status);
   oled.display();
-
   delay(50);
 }
