@@ -5,25 +5,17 @@
 
 Adafruit_SSD1306 oled(128, 32, &Wire, -1);
 
-struct Screen {
-  const char *title;
-  const char *detail;
+struct Stage {
+  const char *status;
+  uint8_t framesPerTick;  // Simulated CAN activity per quarter second.
 };
 
-const Screen screens[] = {
-  {"WAIT ECU", "Awaiting first reply"},
-  {"READY", "ECU reply validated"},
-  {"RECORDING", "Ready | SD log open"},
-  {"REPLY", "Matching ECU reply"},
-  {"MODE 04", "Button held | 2s"},
-  {"QUEUED", "Clear request queued"},
-  {"CLEAR SENT", "Awaiting ECU replies"},
-  {"CONFIRMED", "All ECUs accepted"},
-  {"CHECK ECUS", "Clear not confirmed"},
-  {"SAVING", "Closing SD log"},
-  {"COMPLETE", "Log closed"},
-  {"USB FILES", "SD available via MTP"},
-  {"FAULT", "SD write failed"}
+const Stage stages[] = {
+  {"Waiting for ECU", 0}, {"ECU ready", 3}, {"Recording", 8},
+  {"Reply received", 12}, {"Mode 04 held", 5}, {"Clear queued", 6},
+  {"Clear sent", 4}, {"Clear confirmed", 9}, {"Clear unconfirmed", 7},
+  {"Saving log", 0}, {"Log closed", 0}, {"USB file access", 0},
+  {"SD write fault", 0}
 };
 
 void setup() {
@@ -44,21 +36,40 @@ void setup() {
 }
 
 void loop() {
-  for (const Screen &screen : screens) {
-    oled.clearDisplay();
-    oled.fillRect(0, 0, 128, 8, SSD1306_WHITE);
-    oled.setTextSize(1);
-    oled.setTextColor(SSD1306_BLACK);
-    oled.setCursor(1, 0);
-    oled.print("OBD LOGGER      DEMO");
-    oled.setTextColor(SSD1306_WHITE);
-    oled.setTextSize(2);
-    oled.setCursor(0, 8);
-    oled.print(screen.title);
-    oled.setTextSize(1);
-    oled.setCursor(0, 24);
-    oled.print(screen.detail);
-    oled.display();
-    delay(3000);
-  }
+  static uint32_t tick = 0;
+  static uint32_t frames = 0;
+  const size_t stageCount = sizeof(stages) / sizeof(stages[0]);
+  const size_t index = (tick / 12) % stageCount;
+  const Stage &stage = stages[index];
+  if (index == 0) frames = 0;
+  const unsigned activity = stage.framesPerTick ? stage.framesPerTick + tick % 3 : 0;
+  frames += activity;
+
+  // Reference-style simulated date/time, restarting with each demo session.
+  const unsigned seconds = 11 * 3600 + 24 * 60 + 32 + (tick / 4) % (stageCount * 3);
+  char clockText[16];
+  snprintf(clockText, sizeof(clockText), "16/04 %02u:%02u:%02u",
+           seconds / 3600, seconds / 60 % 60, seconds % 60);
+  oled.clearDisplay();
+  oled.setTextColor(SSD1306_WHITE);
+  oled.setCursor(0, 0);
+  oled.print(clockText);
+  oled.setCursor(104, 0);
+  oled.print("DEMO");
+
+  oled.setCursor(0, 10);
+  oled.print("CAN1   500k");
+  char countText[12];
+  snprintf(countText, sizeof(countText), "%lu", (unsigned long)frames);
+  oled.setCursor(128 - 6 * strlen(countText), 10);
+  oled.print(countText);
+  oled.drawRect(0, 18, 128, 4, SSD1306_WHITE);
+  oled.fillRect(1, 19, activity * 9, 2, SSD1306_WHITE);
+
+  oled.setCursor(0, 24);
+  oled.print("LOG ");
+  oled.print(stage.status);
+  oled.display();
+  ++tick;
+  delay(250);
 }
