@@ -2,7 +2,6 @@
 #include <SD.h>
 #include <Wire.h>
 #include <Adafruit_SSD1306.h>
-#include "OledHeader.h"
 #include "DiagnosticCore.h"
 #include "LogReport.h"
 #include "TraceFormat.h"
@@ -511,9 +510,7 @@ void updateDisplay(){
   oled.setTextWrap(false);
   oled.setTextColor(SSD1306_WHITE);
   oled.setTextSize(1);
-  drawOledHeader(oled,loggerName,0,2,SSD1306_WHITE);
-  oled.fillRoundRect(52,0,24,9,2,SSD1306_WHITE);
-  drawOledHeader(oled,badge,52+(24-(4*strlen(badge)-1))/2,2,SSD1306_BLACK);
+  oled.setCursor(0,1);oled.print(loggerName);
 
   oled.setTextSize(2);
   oled.setCursor((128-12*strlen(status))/2,12);oled.print(status);
@@ -525,14 +522,22 @@ void updateDisplay(){
     storageRefresh=now;storageTotal=SD.totalSize();storageUsed=SD.usedSize();
   }
   char storage[22];
-  if(!sdMounted)snprintf(storage,sizeof storage,"SD NONE");
-  else if(!storageTotal)snprintf(storage,sizeof storage,"SD --");
+  if(!sdMounted)snprintf(storage,sizeof storage,"SD : NO");
+  else if(!storageTotal)snprintf(storage,sizeof storage,"SD : --");
   else {
     // Approximate while recording: filesystem allocation overhead is not counted.
     const unsigned percent=storageUsed>=storageTotal?100:unsigned(storageUsed*100/storageTotal);
-    snprintf(storage,sizeof storage,"SD%u%%%s",percent,percent>=90?"!":"");
+    snprintf(storage,sizeof storage,"SD : %u%%",percent);
   }
-  drawOledHeader(oled,storage,128-(4*strlen(storage)-1),2,SSD1306_WHITE);
+  // Alternate the right badge to retain the full ID at the original font size.
+  const char *headerBadge=((now/2000u)%2u)?storage:badge;
+  const int badgeWidth=max(32,int(6*strlen(headerBadge)+1));
+  const int badgeX=128-badgeWidth;
+  oled.fillRoundRect(badgeX,0,badgeWidth,9,2,SSD1306_WHITE);
+  oled.setTextColor(SSD1306_BLACK);
+  oled.setCursor(badgeX+(badgeWidth-(6*strlen(headerBadge)-1))/2,1);
+  oled.print(headerBadge);
+  oled.setTextColor(SSD1306_WHITE);
 
   // Traveling bright pulse over a dotted track. Hold its exact position on loss.
   if(flowing)pulsePosition=uint8_t((pulsePosition+4)%128);

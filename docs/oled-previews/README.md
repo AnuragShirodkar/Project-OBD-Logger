@@ -25,3 +25,7 @@ Animations use the nominal maximum ten frames per second. Actual updates depend 
 ## Three-item header
 
 08-three-item-header.png is the latest layout: full logger ID on the left, status badge centered, and SD usage right-aligned. A compact 3x5 font (four-pixel advance) fits the maximum 12-character OBD identity in 47 pixels, with a centered 24-pixel badge and up to seven SD characters in 27 pixels. Large main text and the bottom animation remain unchanged. Physical readability needs OLED verification.
+
+## Original font and rounded SD badge
+
+09-original-font-sd-badge.png and 09-header-alternation.gif show the latest layout. The standard 5x7 font replaces the compact font. Full logger ID stays left; the right rounded badge alternates every two seconds between connection status and SD : 45% (example usage). SD : NO means unavailable media, SD : -- unknown capacity. Main status and pulse remain unchanged, including fault text while the SD badge is visible. The longest 12-character ID and SD : 100% fit without overlap. Percentages remain approximate during recording; the former low-space exclamation is removed to fit this format.
