@@ -494,7 +494,7 @@ void updateDisplay(){
   if(finished)badge=fileTransferActive?"USB":"OFF";
   if(fault)badge="ERR";
 
-  const char *status=running?"RECORDING":"FIND ECU";
+  const char *status=running?"RECORDING":"CONNECTING";
   if(!closing && !finished){
     if(mode4Button.holding())status="HOLD CLEAR";
     if(mode4Feedback.phase==automatic::Mode4Feedback::Waiting)status="CLEAR WAIT";
@@ -510,14 +510,13 @@ void updateDisplay(){
   oled.setTextWrap(false);
   oled.setTextColor(SSD1306_WHITE);
   oled.setTextSize(1);
-  oled.setCursor(0,0);oled.print(loggerName);
   oled.fillRoundRect(96,0,32,9,2,SSD1306_WHITE);
   oled.setTextColor(SSD1306_BLACK);
   oled.setCursor(96+(32-6*strlen(badge))/2,1);oled.print(badge);
   oled.setTextColor(SSD1306_WHITE);
 
   oled.setTextSize(1);
-  oled.setCursor((128-6*strlen(status))/2,11);oled.print(status);
+  oled.setCursor((128-6*strlen(status))/2,17);oled.print(status);
 
   // Refresh actual allocation only when capture has stopped (USB can change files).
   static uint32_t storageRefresh=0;
@@ -526,13 +525,13 @@ void updateDisplay(){
   }
   char storage[22];
   if(!sdMounted)snprintf(storage,sizeof storage,"SD MISSING");
-  else if(!storageTotal)snprintf(storage,sizeof storage,"SD SIZE UNKNOWN");
+  else if(!storageTotal)snprintf(storage,sizeof storage,"SD --%%");
   else {
     // Approximate while recording: filesystem allocation overhead is not counted.
     const unsigned percent=storageUsed>=storageTotal?100:unsigned(storageUsed*100/storageTotal);
-    snprintf(storage,sizeof storage,percent>=90?"SD LOW ~%u%% USED":"SD ~%u%% USED",percent);
+    snprintf(storage,sizeof storage,percent>=90?"SD ~%u%% LOW":"SD ~%u%%",percent);
   }
-  oled.setCursor((128-6*strlen(storage))/2,21);oled.print(storage);
+  oled.setCursor(0,0);oled.print(storage);
 
   // Traveling bright pulse over a dotted track. Hold its exact position on loss.
   if(flowing)pulsePosition=uint8_t((pulsePosition+4)%128);

@@ -13,3 +13,7 @@ Animations use the nominal maximum ten frames per second. Actual updates depend 
 ## Storage display update
 
 05-storage-update.png supersedes the earlier layout: main status is now size 1 at y=11; storage is at y=21; ID, badge and bottom pulse remain. Earlier sheets illustrate the previous layout. SD ~42% USED is estimated card-wide usage, including files already on the card. SD LOW appears at 90% used. Missing cards show SD MISSING; unavailable capacity shows SD SIZE UNKNOWN. Capacity is measured before capture; successful log writes update the estimate without scanning FAT while recording. Allocation overhead can make the estimate slightly low. USB mode refreshes actual allocation every five seconds. These images use example values; hardware testing remains required.
+
+## Compact storage header
+
+06-compact-storage.png is the latest layout, superseding 05 and earlier sheets. The top-left now displays SD ~42% (estimated percentage used), or SD ~95% LOW from 90%. SD MISSING and SD --% indicate missing media and unavailable capacity. This replaces the OLED logger ID; USB identity and log metadata are unchanged. Main status uses compact size-1 text centered at y=17, with CONNECTING replacing FIND ECU. Connection badge and bottom pulse remain.
