@@ -21,3 +21,7 @@ Animations use the nominal maximum ten frames per second. Actual updates depend 
 ## Large status with centered badge
 
 07-centered-badge.png is the latest layout. Large size-2 main text at y=12 restores the original screen style. The 32-pixel LIVE/ERR/WAIT/USB badge is centered at x=48; SD usage is size 1 at the top-left (SD42%, maximum SD100%!). An exclamation mark means 90% or more used. Values remain estimated during capture. Missing media shows SD NONE; unknown capacity shows SD --. CONNECTING remains the startup label. The bottom animation is unchanged.
+
+## Three-item header
+
+08-three-item-header.png is the latest layout: full logger ID on the left, status badge centered, and SD usage right-aligned. A compact 3x5 font (four-pixel advance) fits the maximum 12-character OBD identity in 47 pixels, with a centered 24-pixel badge and up to seven SD characters in 27 pixels. Large main text and the bottom animation remain unchanged. Physical readability needs OLED verification.

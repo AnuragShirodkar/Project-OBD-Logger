@@ -2,6 +2,7 @@
 #include <SD.h>
 #include <Wire.h>
 #include <Adafruit_SSD1306.h>
+#include "OledHeader.h"
 #include "DiagnosticCore.h"
 #include "LogReport.h"
 #include "TraceFormat.h"
@@ -510,12 +511,10 @@ void updateDisplay(){
   oled.setTextWrap(false);
   oled.setTextColor(SSD1306_WHITE);
   oled.setTextSize(1);
-  oled.fillRoundRect(48,0,32,9,2,SSD1306_WHITE);
-  oled.setTextColor(SSD1306_BLACK);
-  oled.setCursor(48+(32-6*strlen(badge))/2,1);oled.print(badge);
-  oled.setTextColor(SSD1306_WHITE);
+  drawOledHeader(oled,loggerName,0,2,SSD1306_WHITE);
+  oled.fillRoundRect(52,0,24,9,2,SSD1306_WHITE);
+  drawOledHeader(oled,badge,52+(24-(4*strlen(badge)-1))/2,2,SSD1306_BLACK);
 
-  oled.setTextSize(1);
   oled.setTextSize(2);
   oled.setCursor((128-12*strlen(status))/2,12);oled.print(status);
   oled.setTextSize(1);
@@ -533,7 +532,7 @@ void updateDisplay(){
     const unsigned percent=storageUsed>=storageTotal?100:unsigned(storageUsed*100/storageTotal);
     snprintf(storage,sizeof storage,"SD%u%%%s",percent,percent>=90?"!":"");
   }
-  oled.setCursor(0,0);oled.print(storage);
+  drawOledHeader(oled,storage,128-(4*strlen(storage)-1),2,SSD1306_WHITE);
 
   // Traveling bright pulse over a dotted track. Hold its exact position on loss.
   if(flowing)pulsePosition=uint8_t((pulsePosition+4)%128);
