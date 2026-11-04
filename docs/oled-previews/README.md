@@ -17,3 +17,7 @@ Animations use the nominal maximum ten frames per second. Actual updates depend 
 ## Compact storage header
 
 06-compact-storage.png is the latest layout, superseding 05 and earlier sheets. The top-left now displays SD ~42% (estimated percentage used), or SD ~95% LOW from 90%. SD MISSING and SD --% indicate missing media and unavailable capacity. This replaces the OLED logger ID; USB identity and log metadata are unchanged. Main status uses compact size-1 text centered at y=17, with CONNECTING replacing FIND ECU. Connection badge and bottom pulse remain.
+
+## Large status with centered badge
+
+07-centered-badge.png is the latest layout. Large size-2 main text at y=12 restores the original screen style. The 32-pixel LIVE/ERR/WAIT/USB badge is centered at x=48; SD usage is size 1 at the top-left (SD42%, maximum SD100%!). An exclamation mark means 90% or more used. Values remain estimated during capture. Missing media shows SD NONE; unknown capacity shows SD --. CONNECTING remains the startup label. The bottom animation is unchanged.

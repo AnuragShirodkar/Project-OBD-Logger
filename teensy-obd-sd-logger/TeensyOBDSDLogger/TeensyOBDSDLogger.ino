@@ -510,13 +510,15 @@ void updateDisplay(){
   oled.setTextWrap(false);
   oled.setTextColor(SSD1306_WHITE);
   oled.setTextSize(1);
-  oled.fillRoundRect(96,0,32,9,2,SSD1306_WHITE);
+  oled.fillRoundRect(48,0,32,9,2,SSD1306_WHITE);
   oled.setTextColor(SSD1306_BLACK);
-  oled.setCursor(96+(32-6*strlen(badge))/2,1);oled.print(badge);
+  oled.setCursor(48+(32-6*strlen(badge))/2,1);oled.print(badge);
   oled.setTextColor(SSD1306_WHITE);
 
   oled.setTextSize(1);
-  oled.setCursor((128-6*strlen(status))/2,17);oled.print(status);
+  oled.setTextSize(2);
+  oled.setCursor((128-12*strlen(status))/2,12);oled.print(status);
+  oled.setTextSize(1);
 
   // Refresh actual allocation only when capture has stopped (USB can change files).
   static uint32_t storageRefresh=0;
@@ -524,12 +526,12 @@ void updateDisplay(){
     storageRefresh=now;storageTotal=SD.totalSize();storageUsed=SD.usedSize();
   }
   char storage[22];
-  if(!sdMounted)snprintf(storage,sizeof storage,"SD MISSING");
-  else if(!storageTotal)snprintf(storage,sizeof storage,"SD --%%");
+  if(!sdMounted)snprintf(storage,sizeof storage,"SD NONE");
+  else if(!storageTotal)snprintf(storage,sizeof storage,"SD --");
   else {
     // Approximate while recording: filesystem allocation overhead is not counted.
     const unsigned percent=storageUsed>=storageTotal?100:unsigned(storageUsed*100/storageTotal);
-    snprintf(storage,sizeof storage,percent>=90?"SD ~%u%% LOW":"SD ~%u%%",percent);
+    snprintf(storage,sizeof storage,"SD%u%%%s",percent,percent>=90?"!":"");
   }
   oled.setCursor(0,0);oled.print(storage);
 
