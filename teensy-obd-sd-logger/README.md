@@ -14,6 +14,10 @@ This is a separate Arduino sketch. The original `teensy-obd-tester` files are un
 
 Wire the SSD1306 128x32 I2C display to 3.3 V, GND, SDA 18 and SCL 19. Install Adafruit SSD1306 and its GFX and BusIO dependencies. Firmware probes 0x3C and 0x3D and can record without a display. Pin 40 is the only user button.
 
+The OLED dashboard shows the device ID, a LIVE/WAIT/LOST badge, a large operating status, and a moving pulse along the bottom. The pulse moves only while diagnostic replies have arrived within the last five seconds and recording/discovery is active. It freezes on reply silence or shutdown. With slow configured polling it can pause between replies; this is a response-activity indicator. After confirmed connection loss, LINK LOST remains visible while the USB badge indicates file access. SAVE, USB and ERR badges identify shutdown, file access and faults. CLEAR WAIT, CLEAR OK and CLEAR FAIL show Mode 04 feedback.
+
+Display frames refresh at most ten times per second and transfer in 16-byte chunks between logger loop iterations. An I2C transfer error disables the display until restart and records OLED_IO_FAILED when a log remains active. Bench-test readability, unplugged OLED and held-low I2C lines under CAN traffic before accepting display-fault resilience.
+
 Windows identifies the portable device as OBD_<factory number>. During recording the device advertises no SD storage. Windows clients can enumerate devices independently and write config.json through MTP once the selected device exposes its SD storage. Restart after completing file transfers to load the new configuration.
 
 Send stop or close followed by a newline over USB serial for a deliberate stop. After a polling timeout and at least five seconds without a diagnostic reply, firmware checks the connection using Mode 01 PID 00. Two unanswered probes end the run. A reply resets the check. CAN bus-off or a transmission fault can end the run sooner. A stopped logger drains its buffers and closes the log before making a mounted card available over USB. An unmounted card cannot be exposed. Removing all power interrupts the processor immediately and can lose unflushed data.

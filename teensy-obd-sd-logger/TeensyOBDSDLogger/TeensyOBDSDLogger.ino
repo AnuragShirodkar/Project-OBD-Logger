@@ -16,6 +16,9 @@
 automatic::Mode4Feedback mode4Feedback;
 Adafruit_SSD1306 oled(128,32,&Wire,-1);
 bool oledReady=false;
+uint8_t oledAddress=0;
+uint32_t lastObdReplyAt=0;
+bool obdReplySeen=false;
 bool connectionProbe=false, probeNeeded=false;
 unsigned missedProbes=0;
 uint32_t lastContact=0;
@@ -239,6 +242,7 @@ public:
   void event(const char *kind,uint32_t id,const uint8_t *p,size_t n)override{
     if(n){
       lastContact=millis();missedProbes=0;probeNeeded=false;
+      lastObdReplyAt=lastContact;obdReplySeen=true;
     }
     if(!strcmp(kind,"NO_RESPONSE_TIMEOUT")){
       if(connectionProbe)++missedProbes;
@@ -348,7 +352,9 @@ void setup(){
   for(uint8_t address=0x3C;address<=0x3D;++address){
     Wire.beginTransmission(address);
     if(Wire.endTransmission()==0){
+      oledAddress=address;
       oledReady=oled.begin(SSD1306_SWITCHCAPVCC,address,false,false);
+      Wire.setClock(400000);
       break;
     }
   }
@@ -441,28 +447,93 @@ void stopRun(const char *reason){
     unsigned((boundaryFlags&FLEXCAN_IFLAG1_BUF5I)!=0));note("CAPTURE_STOP",boundary);
   note("STOP",reason);obdStatus(reason);closing=true;
 }
+// One short I2C transaction per loop. A failed OLED is disabled until restart.
+bool finishDisplayTransfer(){
+  if(Wire.endTransmission()==0)return true;
+  oledReady=false;
+  queueConsole("OLED_IO_FAILED; display disabled; recording continues\n");
+  if(!finished)obdStatus("OLED_IO_FAILED");
+  return false;
+}
 void updateDisplay(){
-  uint32_t now=millis();
+  const uint32_t now=millis();
   mode4Feedback.update(now);
   if(!oledReady)return;
-  const char *status=closing?"Saving log":running?"Recording":"Finding ECU";
-  if(finished)status=sdMounted?"USB file access":"No SD card";
-  else if(!closing){
-    if(mode4Button.holding())status="Hold to clear";
-    if(mode4Feedback.phase==automatic::Mode4Feedback::Waiting)status="Clear pending";
-    if(mode4Feedback.phase==automatic::Mode4Feedback::Success)status="Clear confirmed";
-    if(mode4Feedback.phase==automatic::Mode4Feedback::Failure)status="Clear unconfirmed";
+
+  static uint16_t sent=512;
+  static uint32_t lastDraw=0;
+  static bool firstDraw=true;
+  static uint8_t pulsePosition=0;
+
+  // Keep the framebuffer unchanged until the whole image has been transferred.
+  if(sent<512){
+    Wire.beginTransmission(oledAddress);
+    Wire.write(uint8_t(0x40));
+    Wire.write(oled.getBuffer()+sent,16);
+    if(finishDisplayTransfer())sent+=16;
+    return;
   }
-  const char *detail=finished?(completedClean?stopDisplay:"Run failed"):
-    closing?"Closing file":responseSeen?"ECU responded":"Waiting for ECU";
-  static const char *previousStatus=nullptr,*previousDetail=nullptr;
-  if(status==previousStatus && detail==previousDetail)return;
-  previousStatus=status;previousDetail=detail;
-  oled.clearDisplay();oled.setTextSize(1);oled.setTextColor(SSD1306_WHITE);
-  oled.setCursor(0,0);oled.println(loggerName);oled.println(status);oled.println(detail);
-  oled.println(finished?(fileTransferActive?"SD available":"SD unavailable"):"USB SD locked");
-  oled.display();
+  if(!firstDraw && uint32_t(now-lastDraw)<100)return;
+  firstDraw=false;lastDraw=now;
+
+  const bool recentReply=obdReplySeen && uint32_t(now-lastObdReplyAt)<5000;
+  const bool lost=missedProbes>=2 ||
+    (obdReplySeen && !recentReply) || !strcmp(stopDisplay,"ECU disconnected");
+  const bool fault=loggingFault || (closing&&!configGood) ||
+    (finished&&!completedClean);
+  const bool flowing=recentReply && !closing && !finished && !fault;
+
+  const char *badge=flowing?"LIVE":lost?"LOST":"WAIT";
+  if(closing)badge="SAVE";
+  if(finished)badge=fileTransferActive?"USB":"OFF";
+  if(fault)badge="ERR";
+
+  const char *status=running?"RECORDING":"FIND ECU";
+  if(!closing && !finished){
+    if(mode4Button.holding())status="HOLD CLEAR";
+    if(mode4Feedback.phase==automatic::Mode4Feedback::Waiting)status="CLEAR WAIT";
+    if(mode4Feedback.phase==automatic::Mode4Feedback::Success)status="CLEAR OK";
+    if(mode4Feedback.phase==automatic::Mode4Feedback::Failure)status="CLEAR FAIL";
+    if(lost)status="LINK LOST";
+  }
+  if(closing)status="SAVING";
+  if(finished)status=lost?"LINK LOST":fileTransferActive?"SD FILES":"STOPPED";
+  if(fault)status=sdMounted?"LOG ERROR":"NO SD CARD";
+
+  oled.clearDisplay();
+  oled.setTextWrap(false);
+  oled.setTextColor(SSD1306_WHITE);
+  oled.setTextSize(1);
+  oled.setCursor(0,0);oled.print(loggerName);
+  oled.fillRoundRect(96,0,32,9,2,SSD1306_WHITE);
+  oled.setTextColor(SSD1306_BLACK);
+  oled.setCursor(96+(32-6*strlen(badge))/2,1);oled.print(badge);
+  oled.setTextColor(SSD1306_WHITE);
+
+  oled.setTextSize(2);
+  oled.setCursor((128-12*strlen(status))/2,12);oled.print(status);
+
+  // Traveling bright pulse over a dotted track. Hold its exact position on loss.
+  if(flowing)pulsePosition=uint8_t((pulsePosition+4)%128);
+  for(int x=0;x<128;x+=4)oled.drawPixel(x,30,SSD1306_WHITE);
+  if(obdReplySeen){
+    for(int x=0;x<128;++x){
+      const uint8_t distance=uint8_t((x+128-pulsePosition)%128);
+      if(distance<20)oled.drawPixel(x,30,SSD1306_WHITE);
+      if(distance>=7 && distance<=12){
+        oled.drawPixel(x,29,SSD1306_WHITE);
+        oled.drawPixel(x,31,SSD1306_WHITE);
+      }
+    }
+  }
+
+  // Select the complete 128x32 framebuffer in horizontal addressing mode.
+  const uint8_t commands[]={0x00,0x20,0x00,0x21,0,127,0x22,0,3};
+  Wire.beginTransmission(oledAddress);
+  Wire.write(commands,sizeof(commands));
+  if(finishDisplayTransfer())sent=0;
 }
+
 void loop(){
   updateDisplay();
   if(finished){MTP.loop();pumpConsole();return;}
