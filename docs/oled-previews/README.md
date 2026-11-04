@@ -9,3 +9,7 @@ Pulse positions are illustrative. The pulse advances with recent diagnostic repl
 Fault variants share LOG ERROR. Dedicated SD FULL, BUS OFF and INVALID CONFIG screens do not exist in this version. OLED failure may leave a blank, frozen, partially updated or corrupted display; no on-screen message is guaranteed.
 
 Animations use the nominal maximum ten frames per second. Actual updates depend on loop load. The connection-loss animation illustrates state order, not actual probe/shutdown durations. It begins at the final period of live traffic; loss detection itself waits for the five-second reply-silence threshold.
+
+## Storage display update
+
+05-storage-update.png supersedes the earlier layout: main status is now size 1 at y=11; storage is at y=21; ID, badge and bottom pulse remain. Earlier sheets illustrate the previous layout. SD ~42% USED is estimated card-wide usage, including files already on the card. SD LOW appears at 90% used. Missing cards show SD MISSING; unavailable capacity shows SD SIZE UNKNOWN. Capacity is measured before capture; successful log writes update the estimate without scanning FAT while recording. Allocation overhead can make the estimate slightly low. USB mode refreshes actual allocation every five seconds. These images use example values; hardware testing remains required.

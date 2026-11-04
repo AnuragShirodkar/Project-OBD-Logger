@@ -39,6 +39,8 @@ uint32_t runStart=0, setupAt=0, summaryAt=0;
 bool responseSeen=false;
 constexpr unsigned MODE4_BUTTON_PIN=40;
 bool stopRequested=false,sdMounted=false,fileTransferActive=false;
+// Snapshot before CAN starts; count successful writes without scanning FAT during capture.
+uint64_t storageTotal=0,storageUsed=0;
 extern "C" char loggerName[16];
 unsigned nextLogIndex=1;
 uint32_t configFingerprint=2166136261u;
@@ -143,6 +145,7 @@ void writeFileBatch(File &file,char *buffer,size_t &used){
   if(!used)return;
   if(sdGood){
     uint32_t start=micros();size_t written=file.write((const uint8_t*)buffer,used);
+    storageUsed+=written;
     uint32_t elapsed=micros()-start;++sdWrites;if(elapsed>sdWriteMaxUs)sdWriteMaxUs=elapsed;
     if(written!=used){sdBytesUnwritten+=used-written;++sdFailures;sdGood=false;loggingFault=true;queueConsole("SD_WRITE_FAILED; data incomplete\n");}
   }else sdBytesUnwritten+=used;
@@ -164,7 +167,9 @@ bool writeHeaders(){
   }else strcat(header,"Configuration unavailable or invalid\n");
   strcat(header,"Trace time: elapsed milliseconds since power-on\n\n");
   size_t n=strlen(header);
-  return obdfile.write((const uint8_t*)header,n)==n;
+  const size_t written=obdfile.write((const uint8_t*)header,n);
+  storageUsed+=written;
+  return written==n;
 }
 void pumpLog(){
   if(!logCount)return;
@@ -360,6 +365,7 @@ void setup(){
   }
   sdMounted=SD.begin(BUILTIN_SDCARD);
   if(sdMounted){
+    storageTotal=SD.totalSize();storageUsed=SD.usedSize();
     File file=SD.open("config.json",FILE_READ);
     const char *reason="Missing config.json";
     if(file&&file.size()<=8192){
@@ -510,8 +516,23 @@ void updateDisplay(){
   oled.setCursor(96+(32-6*strlen(badge))/2,1);oled.print(badge);
   oled.setTextColor(SSD1306_WHITE);
 
-  oled.setTextSize(2);
-  oled.setCursor((128-12*strlen(status))/2,12);oled.print(status);
+  oled.setTextSize(1);
+  oled.setCursor((128-6*strlen(status))/2,11);oled.print(status);
+
+  // Refresh actual allocation only when capture has stopped (USB can change files).
+  static uint32_t storageRefresh=0;
+  if(finished && sdMounted && uint32_t(now-storageRefresh)>=5000){
+    storageRefresh=now;storageTotal=SD.totalSize();storageUsed=SD.usedSize();
+  }
+  char storage[22];
+  if(!sdMounted)snprintf(storage,sizeof storage,"SD MISSING");
+  else if(!storageTotal)snprintf(storage,sizeof storage,"SD SIZE UNKNOWN");
+  else {
+    // Approximate while recording: filesystem allocation overhead is not counted.
+    const unsigned percent=storageUsed>=storageTotal?100:unsigned(storageUsed*100/storageTotal);
+    snprintf(storage,sizeof storage,percent>=90?"SD LOW ~%u%% USED":"SD ~%u%% USED",percent);
+  }
+  oled.setCursor((128-6*strlen(storage))/2,21);oled.print(storage);
 
   // Traveling bright pulse over a dotted track. Hold its exact position on loss.
   if(flowing)pulsePosition=uint8_t((pulsePosition+4)%128);
