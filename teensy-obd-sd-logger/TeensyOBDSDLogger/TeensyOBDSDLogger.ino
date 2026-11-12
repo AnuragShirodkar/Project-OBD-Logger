@@ -23,6 +23,7 @@ bool connectionProbe=false, probeNeeded=false;
 unsigned missedProbes=0;
 uint32_t lastContact=0;
 const char *stopDisplay="Stopped";
+const char *lastStopReason="none";
 automatic::Discovery discovery;
 automatic::RequestSpacing requestSpacing;
 bool discoveryStarted=false;
@@ -331,10 +332,10 @@ bool openLogSegment(){
 }
 // Stage 1: report and quiesce only; no flash programming command is enabled.
 void updateStatus(){
-  char reply[512];
+  char reply[640];
   const char *state=finished?(completedClean?"ready":"failed"):closing?"preparing":"not_prepared";
-  snprintf(reply,sizeof reply,"@UPDATE {\"protocol\":1,\"id\":\"%s\",\"firmware\":\"1.1.0-dev\",\"hardware\":\"unassigned\",\"state\":\"%s\",\"sd_mounted\":%s,\"oled_ready\":%s,\"logging_fault\":%s,\"sd_failures\":%lu,\"log_drops\":%lu,\"capture_drops\":%lu,\"can_esr1\":%lu,\"flash_enabled\":false}\n",
-    loggerName,state,sdMounted?"true":"false",oledReady?"true":"false",loggingFault?"true":"false",(unsigned long)sdFailures,(unsigned long)logDrops,(unsigned long)captureDrops,(unsigned long)(canStarted?FLEXCANb_ESR1(CAN1):0));
+  snprintf(reply,sizeof reply,"@UPDATE {\"protocol\":1,\"id\":\"%s\",\"firmware\":\"1.1.0-dev2\",\"hardware\":\"unassigned\",\"state\":\"%s\",\"sd_mounted\":%s,\"oled_ready\":%s,\"logging_fault\":%s,\"sd_failures\":%lu,\"log_drops\":%lu,\"capture_drops\":%lu,\"can_esr1\":%lu,\"stop_reason\":\"%s\",\"flash_enabled\":false}\n",
+    loggerName,state,sdMounted?"true":"false",oledReady?"true":"false",loggingFault?"true":"false",(unsigned long)sdFailures,(unsigned long)logDrops,(unsigned long)captureDrops,(unsigned long)(canStarted?FLEXCANb_ESR1(CAN1):0),lastStopReason);
   queueConsole(reply);
 }
 void pollStop(){
@@ -454,6 +455,7 @@ void summary(){
 }
 void stopRun(const char *reason){
   if(closing||finished)return;
+  lastStopReason=reason;
   if(running){
     uint32_t end=millis();
     if(automatic::durationReached(config.duration,runStart,end))end=runStart+config.duration-1;
@@ -530,11 +532,8 @@ void updateDisplay(){
   oled.setCursor((128-12*strlen(status))/2,12);oled.print(status);
   oled.setTextSize(1);
 
-  // Refresh actual allocation only when capture has stopped (USB can change files).
-  static uint32_t storageRefresh=0;
-  if(finished && sdMounted && uint32_t(now-storageRefresh)>=5000){
-    storageRefresh=now;storageTotal=SD.totalSize();storageUsed=SD.usedSize();
-  }
+  // Keep the startup snapshot plus successful writes. A FAT free-space scan
+  // here can stall USB control responses; host edits are reflected after reset.
   char storage[22];
   if(!sdMounted)snprintf(storage,sizeof storage,"SD : NO");
   else if(!storageTotal)snprintf(storage,sizeof storage,"SD : --");
@@ -575,9 +574,10 @@ void updateDisplay(){
 }
 
 void loop(){
-  updateDisplay();
   pollStop();
-  if(finished){MTP.loop();pumpConsole();return;}
+  pumpConsole();
+  updateDisplay();
+  if(finished){pumpConsole();MTP.loop();pumpConsole();return;}
   Captured c;
   if(configGood){
     // Reserve space for decoded messages; RX remains buffered during slow SD writes.
