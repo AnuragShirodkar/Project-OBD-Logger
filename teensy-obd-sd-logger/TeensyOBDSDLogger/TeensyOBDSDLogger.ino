@@ -329,22 +329,36 @@ bool openLogSegment(){
   }
   return false;
 }
+// Stage 1: report and quiesce only; no flash programming command is enabled.
+void updateStatus(){
+  char reply[320];
+  const char *state=finished?(completedClean?"ready":"failed"):closing?"preparing":"not_prepared";
+  snprintf(reply,sizeof reply,"@UPDATE {\"protocol\":1,\"id\":\"%s\",\"firmware\":\"1.1.0-dev\",\"hardware\":\"unassigned\",\"state\":\"%s\",\"sd_mounted\":%s,\"oled_ready\":%s,\"logging_fault\":%s,\"flash_enabled\":false}\n",
+    loggerName,state,sdMounted?"true":"false",oledReady?"true":"false",loggingFault?"true":"false");
+  queueConsole(reply);
+}
 void pollStop(){
   unsigned buttonEvents=mode4Button.update(digitalRead(MODE4_BUTTON_PIN)==LOW,millis());
   if(buttonEvents&automatic::Mode4Button::Pressed)note("MODE04_PRESSED","Pin 40 LOW detected; hold for 2 seconds");
   if(buttonEvents&automatic::Mode4Button::Released)note("MODE04_RELEASED","Pin 40 HIGH; button armed for next press");
   if(buttonEvents&automatic::Mode4Button::Triggered){
-    if(configGood&&!closing&&!stopRequested&&!mode4Requested&&!mode4Feedback.occupied()){
+    if(configGood&&!finished&&!closing&&!stopRequested&&!mode4Requested&&!mode4Feedback.occupied()){
       mode4Requested=true;mode4Feedback.queued();
       note("MODE04_QUEUED",running?"Will send after current transaction":"Will send after startup/discovery completes");
     }else note("MODE04_IGNORED","Stopping, configuration failure, or request/feedback already active");
   }
-  static char command[16];static unsigned length=0;static bool overflow=false;
+  static char command[32];static unsigned length=0;static bool overflow=false;
   for(unsigned i=0;i<32&&Serial.available();++i){
     int c=Serial.read();
     if(c=='\n'||c=='\r'){
       command[length]=0;
       if(!overflow&&(!strcmp(command,"stop")||!strcmp(command,"close")))stopRequested=true;
+      if(!overflow && (!strcmp(command,"device_info") || !strcmp(command,"update_status")))updateStatus();
+      if(!overflow && !strcmp(command,"prepare_update")){
+        stopRequested=true;
+        if(!finished&&!closing)stopRun("Firmware update preparation");
+        updateStatus();
+      }
       length=0;overflow=false;
     }else if(length<sizeof(command)-1)command[length++]=char(c);else overflow=true;
   }
@@ -562,8 +576,8 @@ void updateDisplay(){
 
 void loop(){
   updateDisplay();
-  if(finished){MTP.loop();pumpConsole();return;}
   pollStop();
+  if(finished){MTP.loop();pumpConsole();return;}
   Captured c;
   if(configGood){
     // Reserve space for decoded messages; RX remains buffered during slow SD writes.
