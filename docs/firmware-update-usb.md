@@ -21,3 +21,7 @@ Status now includes sd_failures, log_drops, capture_drops and raw can_esr1 for f
 ## Diagnostic revision dev2
 
 The response includes stop_reason (first shutdown cause) and firmware 1.1.0-dev2. Serial parsing/output is serviced before OLED work. The five-second OLED SD.usedSize scan is removed because FAT allocation scans can block control service; the displayed SD estimate now reflects the startup snapshot plus successful logger writes, and host file edits require reset to refresh it. This removes one identified blocking operation; MTP file transfers can still delay responses. Bench latency and fault-cause confirmation remain pending. No readiness checks have been bypassed.
+
+## Verified Windows programming-mode entry
+
+With one logger attached, confirm its identity and ready status and finish any host SD transfers. Set the selected COM port's USB serial line coding to 134 baud, then close the port and wait for HalfKay (VID 16C0, PID 0478). Run the command-line loader without a window. After reboot, rediscover the logger and query device_info to check the identity and expected version. The installed Teensyduino core handles the USB trigger separately from the application's flash_enabled field. This was verified by reinstalling dev2 on the bench. Package validation and device matching across re-enumeration remain Windows updater work. Keep the Program button for recovery.

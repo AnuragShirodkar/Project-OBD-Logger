@@ -11,3 +11,7 @@ Next: expose the latched stop/fault cause, isolate MTP and SD-capacity scans fro
 ## Safe preparation with spare ECU
 
 OBD_1757338 on COM8 ran firmware 1.1.0-dev2 (7510bd1). The operator confirmed the spare ECU was connected and logging was active before the host sent prepare_update. The host sent one update_status query while waiting. It observed state ready after 1957 ms from the original request, with stop_reason "Firmware update preparation", logging_fault false, and zero SD failures, dropped log entries, and dropped captured frames. Firmware readiness indicates that the logger completed its shutdown checks. Log contents were not independently inspected. The elapsed time covers preparation and status polling, rather than the latency of an isolated serial query. Flashing was disabled throughout.
+
+## Automatic programming-mode entry on Windows
+
+The first status request timed out after eight seconds. Repeating prepare_update and polling confirmed OBD_1757338 was ready with no logging fault. Setting COM8 line coding to 134 baud switched it to HalfKay (VID 16C0, PID 0478) without pressing Program. The command-line uploader reinstalled the same 190464-byte dev2 image and restarted the logger without launching a graphical window. COM8 returned and device_info confirmed OBD_1757338, firmware 1.1.0-dev2, and logging_fault false. Installing a different version and validating a signed package remain untested.
