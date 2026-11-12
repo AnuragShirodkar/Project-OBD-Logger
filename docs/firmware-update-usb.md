@@ -11,3 +11,9 @@ Device information remains queryable after shutdown and does not require an OLED
 Windows team: disconnect vehicle, use one logger, query identity, back up configuration, request preparation, poll status. Hardware compatibility checks, signed package verification, bootloader entry, installation and post-update verification are NOT implemented. `flash_enabled` is false. Do not interpret this API as authorization to bypass package checks.
 
 Bench checks pending: query while recording; prepare during a multi-frame response; verify final log closure; query after stopping; repeat prepare; missing SD; invalid config; OLED disconnected; USB disconnect/reconnect; overlong and fragmented commands. Physical recovery button remains necessary for unresponsive firmware.
+
+## Background uploader investigation
+
+Use the official PaulStoffregen/teensy_loader_cli Windows command-line implementation, not Arduino CLI upload (which launches the graphical loader). Source: https://github.com/PaulStoffregen/teensy_loader_cli . Local build command: `gcc -O2 -Wall -s -DUSE_WIN32 -o teensy_loader_cli.exe teensy_loader_cli.c -lhid -lsetupapi -lwinmm`. Source and executable are kept in the ignored build directory. Preserve upstream GPL licence obligations when distributing. Windows integration should launch it without a console window and capture output. Background flashing and recovery still need bench validation; building the utility alone does not validate an update.
+
+Status now includes sd_failures, log_drops, capture_drops and raw can_esr1 for fault investigation. USB-only auto polling can encounter missing CAN acknowledgements; do not assume a logging fault means the SD failed. Delayed responses remain under investigation.

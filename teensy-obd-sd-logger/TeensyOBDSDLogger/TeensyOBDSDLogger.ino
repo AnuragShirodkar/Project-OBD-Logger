@@ -331,10 +331,10 @@ bool openLogSegment(){
 }
 // Stage 1: report and quiesce only; no flash programming command is enabled.
 void updateStatus(){
-  char reply[320];
+  char reply[512];
   const char *state=finished?(completedClean?"ready":"failed"):closing?"preparing":"not_prepared";
-  snprintf(reply,sizeof reply,"@UPDATE {\"protocol\":1,\"id\":\"%s\",\"firmware\":\"1.1.0-dev\",\"hardware\":\"unassigned\",\"state\":\"%s\",\"sd_mounted\":%s,\"oled_ready\":%s,\"logging_fault\":%s,\"flash_enabled\":false}\n",
-    loggerName,state,sdMounted?"true":"false",oledReady?"true":"false",loggingFault?"true":"false");
+  snprintf(reply,sizeof reply,"@UPDATE {\"protocol\":1,\"id\":\"%s\",\"firmware\":\"1.1.0-dev\",\"hardware\":\"unassigned\",\"state\":\"%s\",\"sd_mounted\":%s,\"oled_ready\":%s,\"logging_fault\":%s,\"sd_failures\":%lu,\"log_drops\":%lu,\"capture_drops\":%lu,\"can_esr1\":%lu,\"flash_enabled\":false}\n",
+    loggerName,state,sdMounted?"true":"false",oledReady?"true":"false",loggingFault?"true":"false",(unsigned long)sdFailures,(unsigned long)logDrops,(unsigned long)captureDrops,(unsigned long)(canStarted?FLEXCANb_ESR1(CAN1):0));
   queueConsole(reply);
 }
 void pollStop(){
