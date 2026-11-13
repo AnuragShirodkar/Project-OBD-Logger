@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "bitrate": 500000,
+  "address_bits": 11,
+  "tx_id": "7DF",
+  "rx_id": "0",
+  "startup_delay_ms": 500,
+  "run_duration_ms": 0,
+  "response_timeout_ms": 70,
+  "requests": [
+    {
+      "request": "01 0C",
+      "interval_ms": 250
+    },
+    {
+      "request": "01 0D",
+      "interval_ms": 250
+    },
+    {
+      "request": "03",
+      "interval_ms": 1000
+    },
+    {
+      "request": "09 02",
+      "interval_ms": 5000
+    }
+  ]
+}
