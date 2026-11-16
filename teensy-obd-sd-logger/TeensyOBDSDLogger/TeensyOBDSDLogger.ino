@@ -334,7 +334,7 @@ bool openLogSegment(){
 void updateStatus(){
   char reply[640];
   const char *state=finished?(completedClean?"ready":"failed"):closing?"preparing":"not_prepared";
-  snprintf(reply,sizeof reply,"@UPDATE {\"protocol\":1,\"id\":\"%s\",\"firmware\":\"1.1.0-dev2\",\"hardware\":\"unassigned\",\"state\":\"%s\",\"sd_mounted\":%s,\"oled_ready\":%s,\"logging_fault\":%s,\"sd_failures\":%lu,\"log_drops\":%lu,\"capture_drops\":%lu,\"can_esr1\":%lu,\"stop_reason\":\"%s\",\"flash_enabled\":false}\n",
+  snprintf(reply,sizeof reply,"@UPDATE {\"protocol\":1,\"id\":\"%s\",\"firmware\":\"1.1.0-dev3\",\"hardware\":\"unassigned\",\"state\":\"%s\",\"sd_mounted\":%s,\"oled_ready\":%s,\"logging_fault\":%s,\"sd_failures\":%lu,\"log_drops\":%lu,\"capture_drops\":%lu,\"can_esr1\":%lu,\"stop_reason\":\"%s\",\"flash_enabled\":false}\n",
     loggerName,state,sdMounted?"true":"false",oledReady?"true":"false",loggingFault?"true":"false",(unsigned long)sdFailures,(unsigned long)logDrops,(unsigned long)captureDrops,(unsigned long)(canStarted?FLEXCANb_ESR1(CAN1):0),lastStopReason);
   queueConsole(reply);
 }
