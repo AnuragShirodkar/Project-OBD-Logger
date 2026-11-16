@@ -25,3 +25,11 @@ The response includes stop_reason (first shutdown cause) and firmware 1.1.0-dev2
 ## Verified Windows programming-mode entry
 
 With one logger attached, confirm its identity and ready status and finish any host SD transfers. Set the selected COM port's USB serial line coding to 134 baud, then close the port and wait for HalfKay (VID 16C0, PID 0478). Run the command-line loader without a window. After reboot, rediscover the logger and query device_info to check the identity and expected version. The installed Teensyduino core handles the USB trigger separately from the application's flash_enabled field. This was verified by reinstalling dev2 on the bench. Package validation and device matching across re-enumeration remain Windows updater work. Keep the Program button for recovery.
+
+## Locked customer units
+
+The Windows command-line loader used in the dev2-to-dev3 test implements Intel HEX loading and has no EHEX support. Do not use it to program locked units. PJRC documents EHEX support in Teensy Loader. Evaluate an EHEX-capable Windows programming path with PJRC before committing to a popup-free customer workflow. The USB trigger and pre-update readiness protocol are separate from image programming.
+
+Provision a dedicated Lockable Teensy 4.1 on the bench using PJRC's procedure and a test key. Verify a matching EHEX before permanently enabling secure mode. Keep the private key out of the app, update package, and repositories. The app should verify the signed release manifest, hardware compatibility, and image hash before requesting shutdown. Source: https://www.pjrc.com/teensy/td_code_security.html
+
+On the locked test unit, install a newer matching EHEX, verify the same logger ID and expected version after reboot, and read the saved log. Confirm an ordinary HEX and an EHEX made with a different test key are rejected and the installed application remains bootable. Test reinstalling an approved image through the physical Program button. Record whether any window appears. Customer deployment depends on these hardware results.
