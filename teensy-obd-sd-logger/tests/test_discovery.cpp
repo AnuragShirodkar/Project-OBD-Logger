@@ -36,5 +36,20 @@ int main(){
     assert(d.receive(0x7e8,response,offset+4));d.finishTransaction();assert(++steps<=64);
   }
   assert(d.support(0,1,0xff)==Discovery::Supported);
+  // Fallback stops after Mode 01 and retains support from either ECU.
+  Discovery live;
+  live.begin(true);
+  uint8_t first[]={0x41,0,0,0x10,0,0}; // PID 0C.
+  uint8_t second[]={0x41,0,0,0x08,0,0}; // PID 0D.
+  assert(live.receive(0x7e8,first,sizeof first));
+  live.finishTransaction();
+  assert(live.busy()&&live.request(request)==2&&request[0]==1);
+  assert(live.receive(0x7e9,second,sizeof second));
+  live.finishTransaction();
+  assert(!live.busy());
+  uint8_t speed[]={1,13}, unsupported[]={1,14};
+  assert(live.requestSupport(rpm,2)==Discovery::Supported);
+  assert(live.requestSupport(speed,2)==Discovery::Supported);
+  assert(live.requestSupport(unsupported,2)==Discovery::Unsupported);
   puts("PASS: per-ECU discovery, continuation, bounded retries, unknown results, freeze frames and capacity");
 }

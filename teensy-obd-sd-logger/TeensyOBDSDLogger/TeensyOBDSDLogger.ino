@@ -35,6 +35,7 @@ bool traceExchangeShown=false;
 #endif
 automatic::Config config;
 automatic::Schedule schedule;
+const char *fallbackNotice=nullptr;
 bool configGood=false, running=false, finished=false, closing=false, completedClean=false;
 uint32_t runStart=0, setupAt=0, summaryAt=0;
 bool responseSeen=false;
@@ -160,7 +161,11 @@ bool writeHeaders(){
   char header[320];
   snprintf(header,sizeof header,"OBD-SkillLogger Version 1.0.0\nLogger: %s\nFile: %s\n",loggerName,obdName);
   size_t used=strlen(header);
-  if(configGood){
+  if(fallbackNotice){
+    snprintf(header+used,sizeof header-used,
+      "Configuration: default live PID discovery (%s)\nCAN: 500000 bps, 11-bit, TX 7DF, RX 0\nRequests: determined after discovery\n",
+      fallbackNotice);
+  }else if(configGood){
     snprintf(header+used,sizeof header-used,
       "Config FNV1a: %08lX\nCAN: %lu bps, %u-bit, TX %lX, RX %lX (0 = functional response range)\nRequests: %u\n",
       (unsigned long)configFingerprint,(unsigned long)config.bitrate,config.address.extended?29:11,
@@ -381,6 +386,7 @@ void setup(){
   sdMounted=SD.begin(BUILTIN_SDCARD);
   if(sdMounted){
     storageTotal=SD.totalSize();storageUsed=SD.usedSize();
+    const bool configExists=SD.exists("config.json");
     File file=SD.open("config.json",FILE_READ);
     const char *reason="Missing config.json";
     if(file&&file.size()<=8192){
@@ -398,7 +404,13 @@ void setup(){
       }
     }else if(file)reason="config.json exceeds 8192 bytes";
     if(file)file.close();
-    if(!configGood)note("CONFIG_ERROR",reason);
+    if(!configGood){
+      note("CONFIG_ERROR",reason);
+      config=automatic::Config();
+      fallbackNotice=configExists?"BAD CONFIG":"NO CONFIG";
+      configGood=true;
+      note("CONFIG_FALLBACK","Discover and poll confirmed Mode 01 live PIDs");
+    }
   }
   if(sdMounted && openLogSegment())sdGood=writeHeaders();
   if(!sdGood)queueConsole("SD_INIT_FAILED; requests disabled\n");
@@ -422,12 +434,12 @@ void setup(){
       note("BUFFERS","PSRAM RX capacity=65536 frames; log capacity=4096 lines; SD batches >=4096 bytes");
     }
   }
-  if(configGood){
+  if(configGood&&sdGood){
     addressing=config.address;configuredRate=config.bitrate;
     diagnostics.setResponseWindow(config.responseTimeout);
     captureEnabled=true;configureCan(config.bitrate,false);canStarted=true;
     note("CAPTURE_START","ACK enabled; diagnostic requests delayed; no resets during polling");
-    note("CONFIG_OK","SD configuration accepted; stop/close supported; startup delay begins");
+    if(!fallbackNotice)note("CONFIG_OK","SD configuration accepted; stop/close supported; startup delay begins");
     char b[120];snprintf(b,sizeof b,"jobs=%u startup_ms=%lu duration_ms=%lu response_window_ms=%lu TX=%08lX RX=%08lX",
       unsigned(config.count),(unsigned long)config.startup,(unsigned long)config.duration,
       (unsigned long)config.responseTimeout,(unsigned long)addressing.tx,(unsigned long)addressing.rx);
@@ -516,6 +528,8 @@ void updateDisplay(){
     if(mode4Feedback.phase==automatic::Mode4Feedback::Waiting)status="CLEAR WAIT";
     if(mode4Feedback.phase==automatic::Mode4Feedback::Success)status="CLEAR OK";
     if(mode4Feedback.phase==automatic::Mode4Feedback::Failure)status="CLEAR FAIL";
+    if(fallbackNotice && (!strcmp(status,"CONNECTING")||!strcmp(status,"RECORDING")) && (now/2000u)%2u==0)
+      status=fallbackNotice;
     if(lost)status="LINK LOST";
   }
   if(closing)status="SAVING";
@@ -617,8 +631,8 @@ void loop(){
       uint32_t now=millis();
       if(!closing&&!running&&!stopRequested&&uint32_t(now-setupAt)>=config.startup){
         if(!discoveryStarted){
-          discoveryStarted=true;discovery.begin();obdStatus("Connecting...");
-          note("DISCOVERY_START","Modes 01/02(frame 00)/06/09; at most two attempts per range; collecting expected-responder maps");
+          discoveryStarted=true;discovery.begin(fallbackNotice!=nullptr);obdStatus("Connecting...");
+          note("DISCOVERY_START",fallbackNotice?"Mode 01 live data support maps":"Modes 01/02(frame 00)/06/09; at most two attempts per range; collecting expected-responder maps");
         }
         if(discovery.busy()){
           if(!diagnostics.busy()&&captureRing.size()==0&&requestSpacing.ready(millis())){
@@ -630,6 +644,22 @@ void loop(){
         }else {
           char b[140];snprintf(b,sizeof b,"ECUs=%u overflow=%u; maps used for early completion and conservative PID filtering",unsigned(discovery.count),unsigned(discovery.overflow));note("DISCOVERY_DONE",b);
           if(!discovery.count)note("DISCOVERY_UNKNOWN","No valid support maps; absence is not proof of unsupported data");
+          if(fallbackNotice){
+            if(discovery.overflow){
+              loggingFault=true;
+              stopRun("Default discovery exceeded ECU inventory capacity");
+              return;
+            }
+            for(unsigned pid=1;pid<=255;++pid){
+              if(pid%32==0)continue; // Support bitmap, not a live value.
+              const uint8_t request[]={1,uint8_t(pid)};
+              if(discovery.requestSupport(request,sizeof request)!=automatic::Discovery::Supported)continue;
+              auto &job=config.jobs[config.count++];
+              job.bytes[0]=request[0];job.bytes[1]=request[1];
+              job.length=sizeof request;
+              job.interval=250;
+            }
+          }
           for(size_t e=0;e<discovery.count;++e)for(size_t j=0;j<config.count;++j){
             const auto &job=config.jobs[j];auto support=discovery.support(e,job.bytes[0],job.length>1?job.bytes[1]:0,job.length>2?job.bytes[2]:0);
             snprintf(b,sizeof b,"job=%u mode=%02X identifier=%02X frame=%02X status=%s",unsigned(j+1),job.bytes[0],job.length>1?job.bytes[1]:0,job.length>2?job.bytes[2]:0,automatic::Discovery::name(support));

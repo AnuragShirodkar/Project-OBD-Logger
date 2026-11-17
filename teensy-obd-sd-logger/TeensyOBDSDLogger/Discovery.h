@@ -10,7 +10,7 @@ public:
   struct Ecu { uint32_t id=0;uint32_t maps[4][8]={};uint8_t known[4]={}; };
   Ecu ecus[8];size_t count=0;bool overflow=false;
 private:
-  unsigned modeIndex=0,range=0,attempt=0;bool active=false;
+  unsigned modeIndex=0,range=0,attempt=0;bool active=false,liveOnly=false;
   static uint8_t modeAt(unsigned i){const uint8_t modes[]={1,2,6,9};return modes[i];}
   bool continuation()const{
     for(size_t i=0;i<count;++i)if((ecus[i].known[modeIndex]&(1u<<range))&&(ecus[i].maps[modeIndex][range]&1u))return true;
@@ -24,7 +24,7 @@ private:
     return false;
   }
 public:
-  void begin(){*this=Discovery();active=true;}
+  void begin(bool liveDataOnly=false){*this=Discovery();active=true;liveOnly=liveDataOnly;}
   bool busy()const{return active;}
   unsigned attemptNumber()const{return attempt+1;}
   size_t request(uint8_t *p)const{p[0]=modeAt(modeIndex);p[1]=uint8_t(range*32);p[2]=0;return p[0]==2?3:2;}
@@ -50,7 +50,7 @@ public:
     if(attempt==0&&missingExpected()){++attempt;return;}
     attempt=0;
     if(range<7&&continuation()){++range;return;}
-    range=0;if(++modeIndex==4)active=false;
+    range=0;if(++modeIndex==(liveOnly?1u:4u))active=false;
   }
   Support support(size_t ecu,uint8_t mode,uint8_t pid,uint8_t frame=0)const{
     unsigned m=0;for(;m<4&&modeAt(m)!=mode;++m){}

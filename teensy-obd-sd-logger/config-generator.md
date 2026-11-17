@@ -10,3 +10,5 @@ Use [config.template.json](config.template.json) as the starter and [config.json
 - Use `01 PID`, `02 PID FRAME`, `06 ID`, `09 INFO_TYPE`, or the single-byte services `03`, `07`, and `0A`. Leave disabled requests out of the export. Mode 04 is controlled by the logger's button and is outside this file format.
 
 The template requests RPM, vehicle speed, stored fault codes, and VIN. The logger checks vehicle support for applicable requests during discovery. The template is a starting point for the generator and does not establish that every vehicle supports these requests.
+
+Missing or rejected config.json triggers default live logging when the SD log can be opened. The display alternates NO CONFIG or BAD CONFIG with the current activity. The fallback discovers Mode 01 support at 500 kbps, 11-bit, functional ID 7DF and polls the union of confirmed live PIDs with a 250 ms target interval per PID. Actual intervals depend on the number of jobs and response timeouts. It skips bitmap queries during polling, leaves the file untouched, and stops if it cannot confirm any live PIDs or the ECU inventory overflows.

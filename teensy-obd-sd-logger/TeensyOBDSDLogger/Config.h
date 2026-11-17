@@ -3,9 +3,10 @@
 #include "DiagnosticCore.h"
 #include "Schedule.h"
 namespace automatic {
+constexpr unsigned MAX_LIVE_PIDS=255-7; // Exclude continuation bitmap IDs.
 struct Config {
   uint32_t bitrate=500000,startup=5000,duration=0,responseTimeout=70;
-  obd::Address address; Job jobs[64];size_t count=0;
+  obd::Address address; Job jobs[MAX_LIVE_PIDS];size_t count=0;
 };
 inline bool hexId(const char *s,uint32_t &id){
   if(!s||!*s)return false;
