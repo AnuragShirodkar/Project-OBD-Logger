@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1700" viewBox="0 0 1200 1700">
+<defs><marker id="arrow" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0 0 L9 4 L0 8 Z" fill="#52647a"/></marker></defs>
+<rect width="1200" height="1700" fill="#f1f5f9"/>
+<rect width="1200" height="136" fill="#10263e"/>
+<g font-family="Arial, sans-serif">
+<text x="62" y="37" fill="#84e0d1" font-size="17" font-weight="bold">SKILLLOGGER  /  FUNCTIONAL DESIGN</text>
+<text x="60" y="88" fill="white" font-size="42" font-weight="bold">How the OBD Logger works</text>
+<text x="62" y="117" fill="#ccdaeb" font-size="19">From power-on to a saved file you can open on your PC</text>
+<rect x="38" y="157" width="1124" height="498" rx="18" fill="#fff" stroke="#d5e1ed"/>
+<text x="66" y="194" font-size="23" font-weight="700" text-anchor="start" fill="#11675c">01   Start up and choose what to log</text>
+<rect x="395" y="206" width="410" height="50" rx="10" fill="#e5f7ef" stroke="#75baa6"/>
+<text x="600" y="237" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Power on and prepare the SD card</text>
+<path d="M600 256V275" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="395" y="275" width="410" height="50" rx="10" fill="#edf5ff" stroke="#a5c8ea"/>
+<text x="600" y="306" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Read and check config.json</text>
+<path d="M600 325V344" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="395" y="344" width="410" height="50" rx="10" fill="#e1efff" stroke="#73a5d3"/>
+<text x="600" y="375" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Can the logger open a log file?</text>
+<path d="M805 369H857" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="816" y="358" font-size="15" font-weight="400" text-anchor="start" fill="#142b42">No</text>
+<rect x="857" y="337" width="263" height="64" rx="10" fill="#fceaf0" stroke="#dda6b4"/>
+<text x="988.5" y="364" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Show storage error</text>
+<text x="988.5" y="386" font-size="16" font-weight="400" text-anchor="middle" fill="#142b42">Stop before sending requests</text>
+<path d="M600 394V413" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="610" y="408" font-size="15" font-weight="400" text-anchor="start" fill="#142b42">Yes</text>
+<rect x="395" y="413" width="410" height="48" rx="10" fill="#e1efff" stroke="#73a5d3"/>
+<text x="600" y="443" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Are the settings valid?</text>
+<path d="M395 437H298V485" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="308" y="428" font-size="15" font-weight="400" text-anchor="start" fill="#142b42">Yes</text>
+<path d="M805 437H902V485" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="863" y="428" font-size="15" font-weight="400" text-anchor="start" fill="#142b42">No</text>
+<rect x="83" y="485" width="430" height="76" rx="10" fill="#edf5ff" stroke="#a5c8ea"/>
+<text x="298" y="507" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Use the settings in config.json</text>
+<text x="298" y="529" font-size="16" font-weight="400" text-anchor="middle" fill="#142b42">Check ECU support for configured requests.</text>
+<text x="298" y="551" font-size="16" font-weight="400" text-anchor="middle" fill="#142b42">Keep requests when support is unknown.</text>
+<rect x="687" y="485" width="430" height="76" rx="10" fill="#fff4dd" stroke="#e1b96d"/>
+<text x="902" y="507" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Show NO CONFIG or BAD CONFIG</text>
+<text x="902" y="529" font-size="16" font-weight="400" text-anchor="middle" fill="#142b42">Use 500 kbps and 11-bit CAN.</text>
+<text x="902" y="551" font-size="16" font-weight="400" text-anchor="middle" fill="#142b42">Select confirmed Mode 01 live PIDs.</text>
+<path d="M298 561V578H494V590" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M902 561V578H706V590" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="395" y="590" width="410" height="45" rx="10" fill="#e1efff" stroke="#73a5d3"/>
+<text x="600" y="618.5" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Any requests to send?</text>
+<path d="M805 612H857" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="816" y="601" font-size="15" font-weight="400" text-anchor="start" fill="#142b42">No</text>
+<rect x="857" y="586" width="263" height="52" rx="10" fill="#fceaf0" stroke="#dda6b4"/>
+<text x="988.5" y="618" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Record why and close the log</text>
+<rect x="38" y="675" width="1124" height="556" rx="18" fill="#fff" stroke="#d5e1ed"/>
+<text x="66" y="712" font-size="23" font-weight="700" text-anchor="start" fill="#11675c">02   Ask the ECUs and save their replies</text>
+<path d="M600 635V730" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="613" y="670" font-size="15" font-weight="400" text-anchor="start" fill="#142b42">Yes</text>
+<rect x="380" y="730" width="440" height="50" rx="10" fill="#edf5ff" stroke="#a5c8ea"/>
+<text x="600" y="761" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Pick the next request that is due</text>
+<path d="M600 780V798" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="380" y="798" width="440" height="58" rx="10" fill="#edf5ff" stroke="#a5c8ea"/>
+<text x="600" y="822" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Send one OBD request</text>
+<text x="600" y="844" font-size="16" font-weight="400" text-anchor="middle" fill="#142b42">Wait for replies or the timeout</text>
+<path d="M600 856V875" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="380" y="875" width="440" height="58" rx="10" fill="#edf5ff" stroke="#a5c8ea"/>
+<text x="600" y="899" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Queue the log entries</text>
+<text x="600" y="921" font-size="16" font-weight="400" text-anchor="middle" fill="#142b42">Capture request, matching frames, and results</text>
+<path d="M600 933V952" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="380" y="952" width="440" height="48" rx="10" fill="#e1efff" stroke="#73a5d3"/>
+<text x="600" y="982" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Would the next write exceed 250 MB?</text>
+<path d="M820 976H863" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="827" y="965" font-size="15" font-weight="400" text-anchor="start" fill="#142b42">Yes</text>
+<rect x="863" y="948" width="258" height="56" rx="10" fill="#edf5ff" stroke="#a5c8ea"/>
+<text x="992" y="971" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Close this file and</text>
+<text x="992" y="993" font-size="16" font-weight="400" text-anchor="middle" fill="#142b42">open the next one</text>
+<path d="M992 1004V1041H820" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M600 1000V1018" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="610" y="1013" font-size="15" font-weight="400" text-anchor="start" fill="#142b42">No</text>
+<rect x="380" y="1018" width="440" height="48" rx="10" fill="#edf5ff" stroke="#a5c8ea"/>
+<text x="600" y="1048" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Write the queued entries to SD</text>
+<path d="M600 1066V1090" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="380" y="1090" width="440" height="51" rx="10" fill="#e1efff" stroke="#73a5d3"/>
+<text x="600" y="1121.5" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Time to stop recording?</text>
+<path d="M380 1115H347V755H380" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="350" y="1103" font-size="15" font-weight="400" text-anchor="start" fill="#142b42">No</text>
+<rect x="74" y="789" width="253" height="72" rx="10" fill="#edf5ff" stroke="#a5c8ea"/>
+<text x="200.5" y="809" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Mode 04</text>
+<text x="200.5" y="831" font-size="16" font-weight="400" text-anchor="middle" fill="#142b42">Queue the clear request</text>
+<text x="200.5" y="853" font-size="16" font-weight="400" text-anchor="middle" fill="#142b42">when the user deliberately presses.</text>
+<rect x="74" y="882" width="253" height="76" rx="10" fill="#edf5ff" stroke="#a5c8ea"/>
+<text x="200.5" y="904" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">One ECU misses a reply</text>
+<text x="200.5" y="926" font-size="16" font-weight="400" text-anchor="middle" fill="#142b42">Record it and keep checking</text>
+<text x="200.5" y="948" font-size="16" font-weight="400" text-anchor="middle" fill="#142b42">as long as others respond.</text>
+<rect x="852" y="1070" width="269" height="122" rx="10" fill="#fff4dd" stroke="#e1b96d"/>
+<text x="986.5" y="1093" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Stop triggers</text>
+<text x="986.5" y="1115" font-size="16" font-weight="400" text-anchor="middle" fill="#142b42">User stop or run time ends</text>
+<text x="986.5" y="1137" font-size="16" font-weight="400" text-anchor="middle" fill="#142b42">ECU link lost or logging fault</text>
+<text x="986.5" y="1159" font-size="16" font-weight="400" text-anchor="middle" fill="#142b42">Update requested</text>
+<text x="986.5" y="1181" font-size="16" font-weight="400" text-anchor="middle" fill="#142b42">Vehicle power lost (planned)</text>
+<rect x="38" y="1251" width="1124" height="405" rx="18" fill="#fff" stroke="#d5e1ed"/>
+<text x="66" y="1288" font-size="23" font-weight="700" text-anchor="start" fill="#11675c">03   Finish the run and access the files</text>
+<path d="M600 1141V1305" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="613" y="1237" font-size="15" font-weight="400" text-anchor="start" fill="#142b42">Yes</text>
+<rect x="380" y="1305" width="440" height="52" rx="10" fill="#edf5ff" stroke="#a5c8ea"/>
+<text x="600" y="1337" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Stop sending requests</text>
+<path d="M600 1357V1376" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="380" y="1376" width="440" height="58" rx="10" fill="#edf5ff" stroke="#a5c8ea"/>
+<text x="600" y="1400" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Save pending data and close the file</text>
+<text x="600" y="1422" font-size="16" font-weight="400" text-anchor="middle" fill="#142b42">Report any save or close failure</text>
+<path d="M600 1434V1453" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="380" y="1453" width="440" height="48" rx="10" fill="#e1efff" stroke="#73a5d3"/>
+<text x="600" y="1483" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">USB access and a mounted SD card?</text>
+<path d="M380 1477H227V1531" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="294" y="1467" font-size="15" font-weight="400" text-anchor="start" fill="#142b42">Yes</text>
+<path d="M820 1477H959V1531" fill="none" stroke="#52647a" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="889" y="1467" font-size="15" font-weight="400" text-anchor="start" fill="#142b42">No</text>
+<rect x="74" y="1531" width="306" height="74" rx="10" fill="#e5f7ef" stroke="#75baa6"/>
+<text x="227" y="1563" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Copy logs or replace config.json</text>
+<text x="227" y="1585" font-size="16" font-weight="400" text-anchor="middle" fill="#142b42">Restart to use the new settings</text>
+<rect x="830" y="1531" width="258" height="74" rx="10" fill="#e5f7ef" stroke="#75baa6"/>
+<text x="959" y="1574" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Recording stopped</text>
+<rect x="851" y="1298" width="270" height="128" rx="10" fill="#fff4dd" stroke="#e1b96d"/>
+<text x="986" y="1324" font-size="18" font-weight="700" text-anchor="middle" fill="#142b42">Vehicle power lost · planned</text>
+<text x="986" y="1346" font-size="16" font-weight="400" text-anchor="middle" fill="#142b42">Finish saving on USB if available.</text>
+<text x="986" y="1368" font-size="16" font-weight="400" text-anchor="middle" fill="#142b42">Otherwise use the backup battery.</text>
+<text x="986" y="1390" font-size="16" font-weight="400" text-anchor="middle" fill="#142b42">Cut backup after saving or</text>
+<text x="986" y="1412" font-size="16" font-weight="400" text-anchor="middle" fill="#142b42">when the hardware timer expires.</text>
+<text x="60" y="1684" font-size="16" font-weight="400" text-anchor="start" fill="#52647a">Design review draft  ·  Firmware installation and Recovery are covered separately.</text>
+</g>
+</svg>
