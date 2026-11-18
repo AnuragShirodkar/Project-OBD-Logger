@@ -33,3 +33,11 @@ The Windows command-line loader used in the dev2-to-dev3 test implements Intel H
 Provision a dedicated Lockable Teensy 4.1 on the bench using PJRC's procedure and a test key. Verify a matching EHEX before permanently enabling secure mode. Keep the private key out of the app, update package, and repositories. The app should verify the signed release manifest, hardware compatibility, and image hash before requesting shutdown. Source: https://www.pjrc.com/teensy/td_code_security.html
 
 On the locked test unit, install a newer matching EHEX, verify the same logger ID and expected version after reboot, and read the saved log. Confirm an ordinary HEX and an EHEX made with a different test key are rejected and the installed application remains bootable. Test reinstalling an approved image through the physical Program button. Record whether any window appears. Customer deployment depends on these hardware results.
+
+## SkiDrive product identification
+
+From 1.1.0-dev5-skidrive, device_info, update_status and prepare_update replies include product "SkiDrive" and device_type "OBD_LOGGER". Protocol remains 1 and the existing @UPDATE prefix is retained. The id field remains hardware-derived, such as OBD_1757338. Display the product and ID together as "SkiDrive — OBD_1757338". The USB friendly name remains OBD_<ID>, so rediscovery must use the response fields for product branding. File names and the OLED ID keep the existing identity.
+
+These fields identify the product type; they do not authenticate a physical device. Older firmware omits them. For older replies, label the device as a legacy candidate until the user or a known-device record confirms it. Hardware revision is still unassigned.
+
+This section supersedes the proposed product-name wording in the earlier Word handoff. The product fields are implemented in this build; Windows UI integration and physical-device verification remain pending.
