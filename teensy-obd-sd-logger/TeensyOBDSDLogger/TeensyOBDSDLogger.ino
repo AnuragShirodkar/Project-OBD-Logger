@@ -13,6 +13,7 @@
 #include "Mode4Feedback.h"
 #include "LogRotation.h"
 #include "Readiness.h"
+constexpr char FIRMWARE_VERSION[]="1.1.0-dev4-diag";
 automatic::Mode4Feedback mode4Feedback;
 Adafruit_SSD1306 oled(128,32,&Wire,-1);
 bool oledReady=false;
@@ -71,6 +72,11 @@ constexpr uint32_t CAPTURE_CAPACITY=65536;
 automatic::CaptureRing<Captured> captureRing;
 Captured *captureMemory=nullptr;
 volatile uint32_t captureDrops=0, captureSeen=0, capturePeak=0, hardwareOverruns=0;
+// Cycle counts measure execution time, not the delay from bus arrival to ISR entry.
+volatile uint32_t canIsrMaxCycles=0,canIsrEntries=0;
+volatile uint32_t firstOverrunUs=0,firstOverrunFlags=0,firstOverrunEsr=0;
+uint32_t txCriticalMaxCycles=0,loopMaxGapUs=0,lastLoopUs=0;
+bool loopTimingStarted=false;
 uint32_t reportedCaptureDrops=0, captureDrained=0;
 struct LogLine {char text[320];};
 LogLine emergencyLog[64];
@@ -159,7 +165,7 @@ void flushFiles(){obdfile.flush();}
 void closeFiles(){obdfile.close();}
 bool writeHeaders(){
   char header[320];
-  snprintf(header,sizeof header,"OBD-SkillLogger Version 1.0.0\nLogger: %s\nFile: %s\n",loggerName,obdName);
+  snprintf(header,sizeof header,"OBD-SkillLogger Version 1.0.0\nFirmware: %s\nLogger: %s\nFile: %s\n",FIRMWARE_VERSION,loggerName,obdName);
   size_t used=strlen(header);
   if(fallbackNotice){
     snprintf(header+used,sizeof header-used,
@@ -201,11 +207,23 @@ bool txPending(){
 }
 // Observe FIFO overflow BEFORE FlexCAN_T4 clears it without setting msg.flags.overrun.
 void captureCanInterrupt(){
-  if(FLEXCANb_IFLAG1(CAN1)&FLEXCAN_IFLAG1_BUF7I){
-    if(captureEnabled)++hardwareOverruns;
+  const uint32_t startCycles=ARM_DWT_CYCCNT;
+  const uint32_t flags=FLEXCANb_IFLAG1(CAN1);
+  ++canIsrEntries;
+  if(flags&FLEXCAN_IFLAG1_BUF7I){
+    if(captureEnabled){
+      if(!hardwareOverruns){
+        firstOverrunUs=micros();
+        firstOverrunFlags=flags;
+        firstOverrunEsr=FLEXCANb_ESR1(CAN1);
+      }
+      ++hardwareOverruns;
+    }
     FLEXCANb_IFLAG1(CAN1)=FLEXCAN_IFLAG1_BUF7I;
   }
   flexcan_isr_can1();
+  const uint32_t elapsed=ARM_DWT_CYCCNT-startCycles;
+  if(elapsed>canIsrMaxCycles)canIsrMaxCycles=elapsed;
 }
 void configureCan(uint32_t rate,bool listen){
   ready=false;
@@ -240,12 +258,16 @@ public:
     memcpy(msg.buf,f.data,8);msg.seq=false;
     // Check and write an inactive mailbox atomically: never enter library TX queue.
     int accepted=0;
+
     noInterrupts();
+    const uint32_t criticalStart=ARM_DWT_CYCCNT;
     for(unsigned i=8;i<16;++i){
       if(FLEXCAN_get_code(FLEXCANb_MBn_CS(CAN1,i))==FLEXCAN_MB_CODE_TX_INACTIVE){
         accepted=can.write((FLEXCAN_MAILBOX)i,msg);break;
       }
     }
+    const uint32_t criticalCycles=ARM_DWT_CYCCNT-criticalStart;
+    if(criticalCycles>txCriticalMaxCycles)txCriticalMaxCycles=criticalCycles;
     interrupts();
     if(accepted==1){raw(f.data[0]==0x30?"FLOW_TX_SUBMIT":"TX_SUBMIT",f,millis());return true;}
     note("TX_FAILED","No free hardware mailbox");return false;
@@ -339,8 +361,8 @@ bool openLogSegment(){
 void updateStatus(){
   char reply[640];
   const char *state=finished?(completedClean?"ready":"failed"):closing?"preparing":"not_prepared";
-  snprintf(reply,sizeof reply,"@UPDATE {\"protocol\":1,\"id\":\"%s\",\"firmware\":\"1.1.0-dev3\",\"hardware\":\"unassigned\",\"state\":\"%s\",\"sd_mounted\":%s,\"oled_ready\":%s,\"logging_fault\":%s,\"sd_failures\":%lu,\"log_drops\":%lu,\"capture_drops\":%lu,\"can_esr1\":%lu,\"stop_reason\":\"%s\",\"flash_enabled\":false}\n",
-    loggerName,state,sdMounted?"true":"false",oledReady?"true":"false",loggingFault?"true":"false",(unsigned long)sdFailures,(unsigned long)logDrops,(unsigned long)captureDrops,(unsigned long)(canStarted?FLEXCANb_ESR1(CAN1):0),lastStopReason);
+  snprintf(reply,sizeof reply,"@UPDATE {\"protocol\":1,\"id\":\"%s\",\"firmware\":\"%s\",\"hardware\":\"unassigned\",\"state\":\"%s\",\"sd_mounted\":%s,\"oled_ready\":%s,\"logging_fault\":%s,\"sd_failures\":%lu,\"log_drops\":%lu,\"capture_drops\":%lu,\"can_esr1\":%lu,\"stop_reason\":\"%s\",\"flash_enabled\":false}\n",
+    loggerName,FIRMWARE_VERSION,state,sdMounted?"true":"false",oledReady?"true":"false",loggingFault?"true":"false",(unsigned long)sdFailures,(unsigned long)logDrops,(unsigned long)captureDrops,(unsigned long)(canStarted?FLEXCANb_ESR1(CAN1):0),lastStopReason);
   queueConsole(reply);
 }
 void pollStop(){
@@ -459,6 +481,15 @@ void summary(){
   snprintf(b,sizeof b,"log_peak=%u log_capacity=%u write_calls=%lu max_write_us=%lu write_failures=%lu unwritten_bytes=%lu",
     logPeak,logCapacity,(unsigned long)sdWrites,(unsigned long)sdWriteMaxUs,(unsigned long)sdFailures,(unsigned long)sdBytesUnwritten);
   note("SD_STATUS",b);
+  snprintf(b,sizeof b,"cpu_hz=%lu isr_count=%lu max_isr_cycles=%lu max_tx_mask_cycles=%lu max_loop_gap_us=%lu",
+    (unsigned long)F_CPU_ACTUAL,(unsigned long)canIsrEntries,(unsigned long)canIsrMaxCycles,
+    (unsigned long)txCriticalMaxCycles,(unsigned long)loopMaxGapUs);
+  note("CAN_TIMING",b);
+  if(hardwareOverruns){
+    snprintf(b,sizeof b,"first_us=%lu flags=%08lX esr=%08lX",
+      (unsigned long)firstOverrunUs,(unsigned long)firstOverrunFlags,(unsigned long)firstOverrunEsr);
+    note("CAN_OVERRUN_DETAIL",b);
+  }
   for(size_t i=0;i<config.count;++i){auto &j=config.jobs[i];
     snprintf(b,sizeof b,"job=%u mode=%02X enabled=%u interval_ms=%lu submitted=%lu skipped_periods=%lu late_starts=%lu max_lateness_ms=%lu",
       unsigned(i+1),j.bytes[0],unsigned(j.enabled),(unsigned long)j.interval,(unsigned long)j.sent,(unsigned long)j.skipped,(unsigned long)j.late,(unsigned long)j.maxLate);
@@ -588,6 +619,12 @@ void updateDisplay(){
 }
 
 void loop(){
+  const uint32_t loopNow=micros();
+  if(loopTimingStarted){
+    const uint32_t gap=loopNow-lastLoopUs;
+    if(gap>loopMaxGapUs)loopMaxGapUs=gap;
+  }
+  lastLoopUs=loopNow;loopTimingStarted=true;
   pollStop();
   pumpConsole();
   updateDisplay();
