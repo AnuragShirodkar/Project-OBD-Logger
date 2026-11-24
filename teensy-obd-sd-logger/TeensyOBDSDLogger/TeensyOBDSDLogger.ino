@@ -13,7 +13,8 @@
 #include "Mode4Feedback.h"
 #include "LogRotation.h"
 #include "Readiness.h"
-constexpr char FIRMWARE_VERSION[]="1.1.0-dev5-skidrive";
+#include "StoragePaths.h"
+constexpr char FIRMWARE_VERSION[]="1.1.0-dev6-folders";
 automatic::Mode4Feedback mode4Feedback;
 Adafruit_SSD1306 oled(128,32,&Wire,-1);
 bool oledReady=false;
@@ -88,7 +89,7 @@ uint32_t sdWrites=0,sdWriteMaxUs=0,sdFailures=0,sdBytesUnwritten=0;
 char consoleQueue[32768];
 unsigned consoleHead=0,consoleTail=0,consoleCount=0;
 bool loggingFault=false;
-char obdName[32]={};
+char obdName[48]={};
 void queueConsole(const char *s);
 void obdWrite(const char *text){
   if(logCount==logCapacity){++logDrops;loggingFault=true;return;}
@@ -348,7 +349,7 @@ void exposeSD(){
 }
 bool openLogSegment(){
   for(;nextLogIndex<1000000;++nextLogIndex){
-    snprintf(obdName,sizeof obdName,"%02u_%s.TXT",nextLogIndex,loggerName);
+    snprintf(obdName,sizeof obdName,"/LOGS/%02u_%s.TXT",nextLogIndex,loggerName);
     if(!SD.exists(obdName)){
       obdfile=SD.open(obdName,FILE_WRITE);++nextLogIndex;
       if(obdfile)return true;
@@ -406,12 +407,18 @@ void setup(){
     }
   }
   sdMounted=SD.begin(BUILTIN_SDCARD);
+  bool storageDirectoriesGood=false;
   if(sdMounted){
     storageTotal=SD.totalSize();storageUsed=SD.usedSize();
-    const bool configExists=SD.exists("config.json");
-    File file=SD.open("config.json",FILE_READ);
+    storageDirectoriesGood=automatic::ensureDirectory(SD,automatic::CONFIG_DIRECTORY)&&
+      automatic::ensureDirectory(SD,automatic::LOG_DIRECTORY);
+    if(!storageDirectoriesGood)queueConsole("SD_DIRECTORY_ERROR; cannot create/open CONFIG or LOGS\n");
+    const char *configPath=automatic::configPath(SD);
+    const bool configExists=SD.exists(configPath);
+    File file=SD.open(configPath,FILE_READ);
+    queueConsole("CONFIG_PATH ");queueConsole(configPath);queueConsole("\n");
     const char *reason="Missing config.json";
-    if(file&&file.size()<=8192){
+    if(file&&!file.isDirectory()&&file.size()<=8192){
       while(file.available()){int b=file.read();if(b<0)break;configFingerprint=(configFingerprint^uint8_t(b))*16777619u;}
       file.seek(0);
       JsonDocument document;
@@ -424,7 +431,7 @@ void setup(){
           if(ch!=' '&&ch!='\t'&&ch!='\r'&&ch!='\n'){configGood=false;reason="Trailing data after JSON";break;}
         }
       }
-    }else if(file)reason="config.json exceeds 8192 bytes";
+    }else if(file)reason=file.isDirectory()?"config.json is a directory":"config.json exceeds 8192 bytes";
     if(file)file.close();
     if(!configGood){
       note("CONFIG_ERROR",reason);
@@ -434,7 +441,7 @@ void setup(){
       note("CONFIG_FALLBACK","Discover and poll confirmed Mode 01 live PIDs");
     }
   }
-  if(sdMounted && openLogSegment())sdGood=writeHeaders();
+  if(sdMounted && storageDirectoriesGood && openLogSegment())sdGood=writeHeaders();
   if(!sdGood)queueConsole("SD_INIT_FAILED; requests disabled\n");
   if(configGood){
     captureMemory=static_cast<Captured*>(extmem_malloc(sizeof(Captured)*CAPTURE_CAPACITY));
