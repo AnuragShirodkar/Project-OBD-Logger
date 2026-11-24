@@ -1,0 +1,2 @@
+# Payload hashes bind exact bytes, including line endings. Preserve sample files.
+template/* -text
