@@ -1,6 +1,6 @@
 # SkiDrive OBD and CAN mode - Windows integration
 
-Firmware: `1.2.0-dev2-can-names`. Same hardware, one CAN channel, pins TX 22 / RX 23.
+Firmware: `1.2.0-dev3-asc-layout`. Same hardware, one CAN channel, pins TX 22 / RX 23.
 This adds configuration-selected behaviour, not simultaneous OBD polling and raw capture.
 No hardware was flashed during this implementation.
 
@@ -61,9 +61,18 @@ unchanged. The existing `hardware: "unassigned"` limitation also remains.
 - Keep the 250,000,000-byte cap per file, including header. Elapsed time remains continuous
   across rotation; each segment repeats the metadata/header. No calendar date is fabricated.
 - CAN frame rows use hexadecimal IDs/data, `x` for extended IDs, channel 1, Rx, d/r,
-  DLC and bytes. Header says `base hex timestamps absolute`: here absolute means each
+  DLC and bytes in aligned columns matching the supplied CAN_1.asc layout. Product,
+  firmware, logger ID, filename, bitrate and config fingerprint stay at the top as
+  comment metadata. Each segment has Begin Triggerblock / End Triggerblock markers;
+  the footer is reserved inside the 250 MB file limit and written on clean rotation
+  or shutdown. A power interruption or SD failure can leave that marker absent.
+  Header says `base hex timestamps absolute`: here absolute means each
   timestamp is elapsed from capture start, not a delta from the preceding frame.
   There is no wall-clock date header. Metadata/error/counter lines start with `//`.
+  Reference Tx rows become Rx here because the logger receives them. Remote frames
+  retain their DLC with no payload bytes; zero placeholders from the reference are
+  not copied. No synthetic Log Trigger Event is inserted into actual recordings.
+  See examples/CAN_ASC_LAYOUT_EXAMPLE.asc for a clearly marked synthetic sample.
 - Times are software receive timestamps with six decimal places in seconds, not a
   guarantee of hardware microsecond accuracy. The clock is extended through micros()
   rollover by main-loop and ISR sampling. Main-loop sampling must run at least once

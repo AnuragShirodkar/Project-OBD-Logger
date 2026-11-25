@@ -16,7 +16,7 @@
 #include "Readiness.h"
 #include "StoragePaths.h"
 #include "CanRecording.h"
-constexpr char FIRMWARE_VERSION[]="1.2.0-dev2-can-names";
+constexpr char FIRMWARE_VERSION[]="1.2.0-dev3-asc-layout";
 automatic::Mode4Feedback mode4Feedback;
 Adafruit_SSD1306 oled(128,32,&Wire,-1);
 bool oledReady=false;
@@ -102,6 +102,7 @@ uint32_t sdWrites=0,sdWriteMaxUs=0,sdFailures=0,sdBytesUnwritten=0;
 char consoleQueue[32768];
 unsigned consoleHead=0,consoleTail=0,consoleCount=0;
 bool loggingFault=false;
+bool canFooterWritten=false;
 char obdName[48]={};
 void queueConsole(const char *s);
 void obdWrite(const char *text){
@@ -152,10 +153,21 @@ void raw(const char *kind,const obd::Frame &f,uint32_t when){
 }
 bool openLogSegment();
 bool writeHeaders();
+bool writeCanFooter(){
+  if(!canMode()||canFooterWritten)return true;
+  const size_t written=obdfile.write((const uint8_t*)automatic::CAN_ASC_END,automatic::CAN_ASC_END_SIZE);
+  storageUsed+=written;
+  if(written!=automatic::CAN_ASC_END_SIZE){sdBytesUnwritten+=automatic::CAN_ASC_END_SIZE-written;return false;}
+  canFooterWritten=true;return true;
+}
 // Rotate before a batch would cross the cap, including during a long exchange.
 // Capture interrupts remain enabled; queued data is written to the new segment.
 void prepareLogBatch(size_t pending){
-  if(!sdGood||!pending||!automatic::needsLogRotation(obdfile.size(),pending))return;
+  const size_t reserve=canMode()?automatic::CAN_ASC_END_SIZE:0;
+  if(!sdGood||!pending||!automatic::needsLogRotation(obdfile.size(),pending+reserve))return;
+  if(!writeCanFooter()){
+    ++sdFailures;sdGood=false;loggingFault=true;queueConsole("LOG_ROTATION_FOOTER_FAILED\n");return;
+  }
   obdfile.flush();
   if(obdfile.getWriteError()){
     ++sdFailures;sdGood=false;loggingFault=true;queueConsole("LOG_ROTATION_FLUSH_FAILED\n");return;
@@ -180,15 +192,10 @@ bool fileWriteError(){return obdfile.getWriteError();}
 void flushFiles(){obdfile.flush();}
 void closeFiles(){obdfile.close();}
 bool writeHeaders(){
-  char header[512];
+  char header[768];
   if(canMode()){
-    snprintf(header,sizeof header,
-      "base hex timestamps absolute\nno internal events logged\n"
-      "// SkiDrive Classical CAN capture; calendar time unavailable\n"
-      "// Firmware: %s\n// Logger: %s\n// File: %s\n"
-      "// Operating mode: can; bitrate: %lu; listen-only; standard and extended IDs\n"
-      "// Config FNV1a: %08lX\n// Frame timestamps: elapsed seconds since capture start; software receive time\n",
-      FIRMWARE_VERSION,loggerName,obdName,(unsigned long)config.bitrate,(unsigned long)configFingerprint);
+    if(!automatic::formatCanAscHeader(header,sizeof header,FIRMWARE_VERSION,loggerName,obdName,
+                                    config.bitrate,configFingerprint))return false;
     const size_t n=strlen(header),written=obdfile.write((const uint8_t*)header,n);
     storageUsed+=written;return written==n;
   }
@@ -376,7 +383,7 @@ bool openLogSegment(){
     if(!automatic::formatLogPath(obdName,sizeof obdName,nextLogIndex,loggerName,canMode()))return false;
     if(!SD.exists(obdName)){
       obdfile=SD.open(obdName,FILE_WRITE);++nextLogIndex;
-      if(obdfile)return true;
+      if(obdfile){canFooterWritten=false;return true;}
       closeFiles();return false;
     }
   }
@@ -817,7 +824,10 @@ void loop(){
   if(closing&&finalSummary&&!logCount){
     writeBatch();
     bool ok=configGood&&sdGood&&!loggingFault;
-    if(obdfile){flushFiles();ok=ok&&!fileWriteError();closeFiles();}
+    if(obdfile){
+      if(sdGood&&!writeCanFooter()){++sdFailures;sdGood=false;loggingFault=true;ok=false;}
+      flushFiles();ok=ok&&!fileWriteError();closeFiles();
+    }
     completedClean=ok;sdGood=false;finished=true;exposeSD();
     queueConsole(ok?"LOG_CLOSED; run complete\n":"RUN_FAILED; check SD/log and reset\n");pumpConsole();
   }

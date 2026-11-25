@@ -30,22 +30,33 @@ int main(int argc,char **argv){
 
   char line[128];uint8_t data[]={0,1,2,3,0xAA,0xBB,0xCC,0xFF};
   assert(automatic::formatCanAsc(line,sizeof line,1234567,0x123,false,false,8,data));
-  assert(!strcmp(line,"1.234567 1 123 Rx d 8 00 01 02 03 AA BB CC FF\n"));
+  assert(!strcmp(line,"         1.234567 1  123          Rx   d   8 00 01 02 03 AA BB CC FF\n"));
   assert(automatic::formatCanAsc(line,sizeof line,4294967300ull,0x18DAF110,true,false,2,data));
-  assert(!strcmp(line,"4294.967300 1 18DAF110x Rx d 2 00 01\n"));
+  assert(!strcmp(line,"      4294.967300 1  18DAF110x    Rx   d   2 00 01\n"));
   assert(automatic::formatCanAsc(line,sizeof line,9,0x7ff,false,true,8,nullptr));
-  assert(!strcmp(line,"0.000009 1 7FF Rx r 8\n"));
+  assert(!strcmp(line,"         0.000009 1  7FF          Rx   r   8\n"));
   assert(automatic::formatCanAsc(line,sizeof line,0,0,false,false,0,nullptr));
   assert(!automatic::formatCanAsc(line,4,0,0,false,false,0,nullptr));
   assert(!automatic::formatCanAsc(line,sizeof line,0,0x800,false,false,0,nullptr));
   assert(!automatic::formatCanAsc(line,sizeof line,0,0x20000000,true,false,0,nullptr));
   assert(!automatic::formatCanAsc(line,sizeof line,0,1,false,false,9,data));
   assert(!automatic::formatCanAsc(line,sizeof line,0,1,false,false,1,nullptr));
+  char header[768];
+  assert(automatic::formatCanAscHeader(header,sizeof header,"1.2.0-dev3-asc-layout","OBD_1757338",
+    "/LOGS/01_CAN_1757338.ASC",500000,0x1234ABCD));
+  assert(strstr(header,"// Firmware: 1.2.0-dev3-asc-layout\n"));
+  assert(strstr(header,"// Logger: OBD_1757338\n"));
+  assert(strstr(header,"// Config FNV1a: 1234ABCD\n"));
+  assert(strstr(header,"// Firmware:")<strstr(header,"base hex"));
+  assert(strstr(header,"// CAN channel: 1\nBegin Triggerblock\n"));
+  assert(!strstr(header,"\ndate "));
+  assert(!automatic::formatCanAscHeader(header,32,"test","OBD_1","example.asc",500000,0));
+  assert(automatic::formatCanAscHeader(header,sizeof header,"1.2.0-dev3-asc-layout","OBD_1757338",
+    "/LOGS/01_CAN_1757338.ASC",500000,0x1234ABCD));
 
   if(argc>1){
     std::ofstream fixture(argv[1]);assert(fixture);
-    fixture<<"base hex timestamps absolute\nno internal events logged\n"
-             "// Elapsed timestamps only; calendar time unavailable\n";
+    fixture<<"// Synthetic layout example; not a vehicle recording\n"<<header;
     const uint32_t ids[]={0x123,0x18DAF110,0x7ff,0};
     const uint64_t times[]={0,1234567,4294967300ull,4294967400ull};
     const uint8_t lengths[]={8,2,8,0};
@@ -53,7 +64,7 @@ int main(int argc,char **argv){
       assert(automatic::formatCanAsc(line,sizeof line,times[i],ids[i],i==1,i==2,lengths[i],data));
       fixture<<line;
     }
-    fixture<<"// RXdrops=0 logDrops=0 hw_overruns=0\n";
+    fixture<<"// RXdrops=0 logDrops=0 hw_overruns=0\n"<<automatic::CAN_ASC_END;
     fixture.close();assert(fixture);
   }
   std::cout<<"CAN formatting, timestamps and activity tests passed\n";
