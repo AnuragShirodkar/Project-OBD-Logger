@@ -1,25 +1,22 @@
-# SkiDrive SD-configured OBD / Classical CAN logger
+# Automatic SD-configured OBD logger
+
+## Separate OBD-only project
+
+This project preserves firmware `1.1.0-dev6-folders` from commit `7021f2f`.
+Code and tests are the pre-CAN-mode version. Documentation and package tools now
+live in this folder. The manual tester is in `teensy-obd-tester/`, and OLED tests
+are in `OLEDStatusDemo/`. Use version-1 OBD JSON only. This older firmware retains
+automatic Mode 01 polling for missing/invalid configuration; it is not a passive
+CAN logger. For two-mode operation use the separate `../teensy-obd-can-logger/`
+project. Historical docs describe their original validation scope, not new tests.
+
 
 This is a separate Arduino sketch. The original `teensy-obd-tester` files are unchanged. Open `TeensyOBDSDLogger/TeensyOBDSDLogger.ino`; Arduino requires the folder and sketch basename to match. Copy the WHOLE sketch folder, including headers, usb_identity.c and the src subfolder. The original manual sketch is unchanged.
-
-## Dual-mode firmware (current behaviour)
-
-Firmware `1.2.0-dev2-can-names` selects OBD polling or Classical CAN listen-only
-recording using one `/CONFIG/config.json`. See the [software handoff](../docs/dual-mode-software-handoff.md)
-and `config.obd.example.json` / `config.can.example.json`. Version-1 configs remain
-OBD configs. New configs use version 2 and `operating_mode`. CAN recordings use
-`/LOGS/*.ASC`; OBD retains `/LOGS/*.TXT`. CAN FD is not included.
-
-Missing or invalid config now shows CONFIG ERROR and exposes SD access without
-starting CAN. Automatic default PID polling is removed. Pin 40 is inactive in CAN
-mode. Silence shows NO TRAFFIC and does not stop CAN recording; use stop/close, a
-configured duration or fault shutdown. Battery-backed unplug shutdown is pending.
-The OBD discovery, scheduling and Mode 04 details below apply only in OBD mode.
 
 ## Upload and run continuously
 
 1. Use Teensy board package **1.62.0**, ArduinoJson 7, and board **Teensy 4.1**. Select **Tools > USB Type > Serial + MTP Disk (Experimental)**. The build script selects this option automatically. No separate MTP library is required; the core responder is customized locally (see src/mtp/PROVENANCE.md).
-2. Copy the updated `config.json` to `/CONFIG/config.json`. New recordings are saved in `/LOGS/`. Firmware creates both folders; root-level `/config.json` remains a legacy fallback when the new file is absent. See [SD folder layout](../docs/sd-folder-layout.md). **`run_duration_ms: 0` means continuous logging**; omitting it also defaults to continuous. An old JSON with 60000 still stops after 60 seconds. Keep all other settings unchanged for comparison.
+2. Copy the updated `config.json` to `/CONFIG/config.json`. New recordings are saved in `/LOGS/`. Firmware creates both folders; root-level `/config.json` remains a legacy fallback when the new file is absent. See [SD folder layout](docs/sd-folder-layout.md). **`run_duration_ms: 0` means continuous logging**; omitting it also defaults to continuous. An old JSON with 60000 still stops after 60 seconds. Keep all other settings unchanged for comparison.
 3. Upload this sketch with its complete folder. On the first setup, insert the configured card as usual. Subsequent file copies and configuration updates can use USB without removing it.
 4. Power the ECU first, then Teensy. Normal CAN reception/acknowledgement begins after valid configuration and PSRAM checks. Startup support discovery begins after the demo configuration's 500 ms startup delay; configured polling begins after discovery. Logging continues until requested to stop, an optional duration expires, or a fault occurs.
 5. Stop using one of the controls below. The logger stops scheduling new requests, lets the active exchange finish, stops capture, drains buffers, and closes the file. SD-card access becomes available only after this shutdown.
@@ -95,7 +92,7 @@ ISO-TP flow control uses block size 8, minimum separation 10 ms, a one-second co
 - `response_timeout_ms`: 10..10000, default 70; also the response-reloaded collection window when responders are uncertain.
 - `requests`: 1..64 unique objects, each containing `request` (space-separated hex bytes) and `interval_ms` (10..3600000).
 
-Unknown keys, unsupported modes, bad parameter counts, malformed IDs and invalid timing values prevent transmission. Configuration must be at most 8192 bytes. Missing or invalid configuration prevents recording and exposes the SD card for correction; no default PID requests are sent. Configuration loads only at boot. Serial accepts only stop/close, not diagnostic requests. The demo has no clock source: `Date:` stays blank; timestamps are uptime milliseconds, not wall-clock time.
+Unknown keys, unsupported modes, bad parameter counts, malformed IDs and invalid timing values prevent transmission. Configuration must be at most 8192 bytes. Missing or invalid configuration is reported in the new log if the SD card is writable. Configuration loads only at boot. Serial accepts only stop/close, not diagnostic requests. The demo has no clock source: `Date:` stays blank; timestamps are uptime milliseconds, not wall-clock time.
 
 ## Logs and counters
 
@@ -210,4 +207,4 @@ the RX payload, with separate spark/compression monitor labels.
 The current JSON has layout rules for 38 of 51 jobs (74.5%). This is **not** an
 overall standards-compliance percentage. Run `test.ps1` to recompute it after
 configuration changes. The review notes, remaining gaps and claim boundaries are in
-[the OCT2011 review](../docs/J1979_DA_OCT2011_Review.md).
+[the OCT2011 review](docs/J1979_DA_OCT2011_Review.md).

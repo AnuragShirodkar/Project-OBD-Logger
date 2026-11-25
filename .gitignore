@@ -9,6 +9,6 @@
 .DS_Store
 Thumbs.db
 
-# Retired STM32 simulators: retained locally only
+# Retired STM32 simulators were removed; keep these paths excluded.
 /stm32-obd-simulator/
 /stm32-obd-four-ecu-stage1/

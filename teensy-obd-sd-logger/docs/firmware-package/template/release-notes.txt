@@ -1,0 +1,4 @@
+INTEGRATION TEMPLATE ONLY.
+Not executable logger firmware.
+Use to test package import, preview and blocked installation.
+Never pass this HEX to a programmer.

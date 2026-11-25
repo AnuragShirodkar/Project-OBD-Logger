@@ -1,0 +1,24 @@
+{
+  "format": "skidrive-firmware-package",
+  "format_version": 1,
+  "package_kind": "integration-template",
+  "product": "SkiDrive",
+  "device_type": "OBD_LOGGER",
+  "firmware_version": "0.0.0-integration",
+  "target": {
+    "board": "teensy41-standard",
+    "mcu": "IMXRT1062",
+    "hardware_revisions": [
+      "unassigned"
+    ],
+    "usb_update_protocol": 1
+  },
+  "payload": {
+    "file": "firmware.hex",
+    "format": "intel-hex",
+    "size_bytes": 48,
+    "sha256": "01743e8d67600b45f8a86b9030ff9afd1d850476e7140b6b0ad024b00bf5f133"
+  },
+  "release_notes": "release-notes.txt",
+  "signing": null
+}

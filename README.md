@@ -1,29 +1,23 @@
-# Project OBD Logger
+# SkiDrive logger projects
 
-The active prototype is a **Teensy 4.1 manual OBD tester for a spare Audi ECU**.
-Enter requests through Arduino IDE Serial Monitor; view responses there and
-record the exchange to the Teensy's SD card as an OBD-SkillLogger text report.
+This workspace contains two independent projects. Each has its own sketch, tests,
+configuration, documentation, firmware-package tools and OLED demo.
 
-- [Teensy sketch, commands and first bench test](teensy-obd-tester/README.md)
-- [Open the Arduino sketch](teensy-obd-tester/TeensyOBDTester/TeensyOBDTester.ino)
+- [OBD Logger - previous project](teensy-obd-sd-logger/README.md): restored OBD-only
+  source from commit `7021f2f`, firmware `1.1.0-dev6-folders`. It includes CONFIG/LOGS
+  folders and the original manual OBD tester. Use version-1 OBD configurations.
+- [OBD CAN Logger - new project](teensy-obd-can-logger/README.md): current two-mode
+  source from commit `7d33b4a`, firmware `1.2.0-dev2-can-names`. A selected configuration
+  chooses OBD polling or passive Classical CAN capture; examples are included.
 
-Hardware: Teensy 4.1 with two 8 MB PSRAM chips and TLE9371VSJ. CAN1 uses TX 22,
-RX 23; STB is grounded. The prototype does not require PSRAM.
+Open the sketch inside the chosen project; both intentionally retain the Arduino
+folder/sketch name `TeensyOBDSDLogger`. Do not mix headers or configs between them.
+Run each project's own `test.ps1` from its folder. See each README for USB type,
+dependencies, recording format and the limits of hardware validation.
 
-Current scope: passive CAN bitrate detection with manual override, 11-/29-bit
-address selection, manual OBD requests, multi-frame responses, negative responses
-and distinct timeouts, USB display and SD logging. No physical ECU test or firmware
-upload has been performed as part of this development.
+Shared hardware material stays in `Schematics/`; the existing third-party reference
+datasets under `New folder/` are preserved. These are not either firmware project.
+The two retired STM32 simulator directories have been removed as requested.
 
-Later: a Windows configuration tool exporting multi-mode OBD JSON, transferred by
-USB or SD. Android is no longer planned. XCP and CCP remain deferred.
-
-## Test hardware
-
-The project uses real ECUs for testing. STM32 vehicle simulation has been retired
-and its source projects are no longer included in this repository's current files.
-Earlier commits and design documents retain historical simulator references;
-those simulator procedures are no longer part of the active test plan.
-
-See each component's README for validation and limitations. Build artifacts, local
-tool dependencies and credentials must not be committed.
+This reorganization does not flash a logger or alter its SD card. Build outputs,
+credentials and private keys are excluded from Git. Original source history is retained.

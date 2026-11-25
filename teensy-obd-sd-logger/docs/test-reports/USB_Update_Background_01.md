@@ -1,0 +1,23 @@
+# USB background programming bench test 01
+
+Date: 2026-11-12 (Asia/Calcutta). Device OBD_1757338, COM8; user confirmed USB-only and pressed Program. Firmware source ca773b6, version 1.1.0-dev.
+
+Official teensy_loader_cli built locally for Windows programmed 191488 bytes with --mcu=TEENSY41 and exited 0 after Booting. Arduino upload / graphical Teensy Loader was not invoked. Device subsequently returned the extended @UPDATE status, confirming the diagnostic image runs. This validates manual Program-button entry plus CLI upload; automatic entry and the branded Windows updater remain untested.
+
+Observed status: state failed; sd_mounted true; oled_ready true; logging_fault true; sd_failures 0; log_drops 0; capture_drops 0; can_esr1 262800; flash_enabled false. The first query produced no response in an eight-second read window. Repeated queries returned three responses in a batch. Reliable response latency and safe-preparation success are NOT validated. No evidence of an SD write failure in these counters; exact fault origin remains to be isolated. No ECU was attached, so CAN transmission without acknowledgements is a candidate, not a confirmed cause.
+
+Next: expose the latched stop/fault cause, isolate MTP and SD-capacity scans from control-response handling, and repeat preparation tests with controlled CAN/idle conditions. Do not enable unattended customer updates based on this test alone.
+
+## Safe preparation with spare ECU
+
+OBD_1757338 on COM8 ran firmware 1.1.0-dev2 (7510bd1). The operator confirmed the spare ECU was connected and logging was active before the host sent prepare_update. The host sent one update_status query while waiting. It observed state ready after 1957 ms from the original request, with stop_reason "Firmware update preparation", logging_fault false, and zero SD failures, dropped log entries, and dropped captured frames. Firmware readiness indicates that the logger completed its shutdown checks. Log contents were not independently inspected. The elapsed time covers preparation and status polling, rather than the latency of an isolated serial query. Flashing was disabled throughout.
+
+## Automatic programming-mode entry on Windows
+
+The first status request timed out after eight seconds. Repeating prepare_update and polling confirmed OBD_1757338 was ready with no logging fault. Setting COM8 line coding to 134 baud switched it to HalfKay (VID 16C0, PID 0478) without pressing Program. The command-line uploader reinstalled the same 190464-byte dev2 image and restarted the logger without launching a graphical window. COM8 returned and device_info confirmed OBD_1757338, firmware 1.1.0-dev2, and logging_fault false. Installing a different version and validating a signed package remain untested.
+
+## Different-version update on Windows — 2026-11-16
+
+The spare ECU was connected and the logger was recording. COM8 identified OBD_1757338 on 1.1.0-dev2. The first preparation wait timed out. A repeat request and status poll confirmed ready with the expected stop reason, zero SD failures and zero dropped log entries or captured frames. The 134-baud USB trigger entered the expected HalfKay bootloader. The command-line uploader installed the distinct 1.1.0-dev3 image (386052b) without a button press or GUI. COM8 returned with the same ID and device_info confirmed dev3. The spare ECU replied after reboot.
+
+After a clean stop of the post-update run, both adjacent logs were copied via MTP and read on the PC. 28_OBD_1757338.TXT (386799 bytes) and 29_OBD_1757338.TXT (373090 bytes) had matching configuration fingerprints AC300FF5, readable headers, and final CAPTURE_DRAINED records. Their trace headers still display product version 1.0.0. The USB device_info field supplied the firmware-version check. The logger was left stopped after verification. Signed package checks and Windows application integration were outside this bench run.

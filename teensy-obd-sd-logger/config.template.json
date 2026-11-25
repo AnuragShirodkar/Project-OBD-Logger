@@ -1,6 +1,5 @@
 {
-  "version": 2,
-  "operating_mode": "obd",
+  "version": 1,
   "bitrate": 500000,
   "address_bits": 11,
   "tx_id": "7DF",

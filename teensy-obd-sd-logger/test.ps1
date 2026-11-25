@@ -6,10 +6,6 @@ $ErrorActionPreference = 'Stop'
 Push-Location $PSScriptRoot
 try {
   New-Item -ItemType Directory -Force build | Out-Null
-  & g++ -std=c++11 -Wall -Wextra -Werror tests/test_can_recording.cpp -o build/test_can_recording.exe
-  if ($LASTEXITCODE) { throw 'CAN recording compilation failed' }
-  & ./build/test_can_recording.exe build/can-mode-fixture.asc
-  if ($LASTEXITCODE) { throw 'CAN recording tests failed' }
   & g++ -std=c++11 -Wall -Wextra -Werror tests/test_storage_paths.cpp -o build/test_storage_paths.exe
   if ($LASTEXITCODE) { throw 'Storage-path compilation failed' }
   & ./build/test_storage_paths.exe
