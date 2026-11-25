@@ -6,7 +6,8 @@
 - [x] Version-1 OBD compatibility and explicit version-2 mode selector.
 - [x] Invalid/missing config stops without enabling CAN; no automatic OBD fallback.
 - [x] Fixed >3-second CAN idle stop, save/close and OLED SD ACCESS; restart to resume.
-- [ ] Flash and validate both modes on actual hardware when requested.
+- [x] Install dev4 and verify USB-only CAN idle stop, SD access and CAN-named log readback.
+- [ ] Validate both modes on the actual CAN bus; visually confirm the OLED states.
 - [ ] Reference-capture load/loss, no-ACK listen-only and intended-tool ASC import tests.
 - [ ] Physical storage rotation, stop/drain and SD/OLED fault tests.
 - [ ] Windows integration for mode selection, per-device transfer and status.
