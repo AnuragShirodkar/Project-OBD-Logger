@@ -9,8 +9,9 @@ Configuration precedence:
 
 1. If `/CONFIG/config.json` exists, use it.
 2. Otherwise try the legacy `/config.json` at the card root.
-3. If the selected file is missing or invalid, keep the existing default discovery
-   mode: discover and poll confirmed supported Mode 01 live PIDs, with an OLED notice.
+3. From dual-mode firmware `1.2.0-dev1-dual-mode`, a missing or invalid selected file
+   stops without enabling CAN and exposes SD access with CONFIG ERROR on the OLED.
+   The earlier automatic Mode 01 fallback is removed to prevent unexpected traffic.
 
 An invalid canonical config does not silently select a different old root config.
 Existing settings and recordings are not moved or deleted automatically. To migrate,
@@ -19,7 +20,9 @@ the copy, then restart. Retain the root copy as a backup if desired; it will be 
 while the canonical file exists. Support/root files such as mtpindex.dat are separate
 from user logs and are not relocated.
 
-New files keep the existing name format, for example `/LOGS/01_OBD_1757338.TXT`.
+New files keep the existing ID and index format: `/LOGS/01_OBD_1757338.TXT` for OBD,
+or `/LOGS/01_OBD_1757338.ASC` for passive CAN. The OBD_ prefix remains the stable
+device identity; it does not select the operating mode.
 Number allocation and 250 MB rotation check the LOGS directory, avoid existing names
 and create the next segment there. Old root-level logs remain available. The first
 new folder log can have the same basename as an old root file because paths differ;

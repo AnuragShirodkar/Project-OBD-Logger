@@ -1,6 +1,20 @@
-# Automatic SD-configured OBD logger
+# SkiDrive SD-configured OBD / Classical CAN logger
 
 This is a separate Arduino sketch. The original `teensy-obd-tester` files are unchanged. Open `TeensyOBDSDLogger/TeensyOBDSDLogger.ino`; Arduino requires the folder and sketch basename to match. Copy the WHOLE sketch folder, including headers, usb_identity.c and the src subfolder. The original manual sketch is unchanged.
+
+## Dual-mode firmware (current behaviour)
+
+Firmware `1.2.0-dev1-dual-mode` selects OBD polling or Classical CAN listen-only
+recording using one `/CONFIG/config.json`. See the [software handoff](../docs/dual-mode-software-handoff.md)
+and `config.obd.example.json` / `config.can.example.json`. Version-1 configs remain
+OBD configs. New configs use version 2 and `operating_mode`. CAN recordings use
+`/LOGS/*.ASC`; OBD retains `/LOGS/*.TXT`. CAN FD is not included.
+
+Missing or invalid config now shows CONFIG ERROR and exposes SD access without
+starting CAN. Automatic default PID polling is removed. Pin 40 is inactive in CAN
+mode. Silence shows NO TRAFFIC and does not stop CAN recording; use stop/close, a
+configured duration or fault shutdown. Battery-backed unplug shutdown is pending.
+The OBD discovery, scheduling and Mode 04 details below apply only in OBD mode.
 
 ## Upload and run continuously
 
@@ -81,7 +95,7 @@ ISO-TP flow control uses block size 8, minimum separation 10 ms, a one-second co
 - `response_timeout_ms`: 10..10000, default 70; also the response-reloaded collection window when responders are uncertain.
 - `requests`: 1..64 unique objects, each containing `request` (space-separated hex bytes) and `interval_ms` (10..3600000).
 
-Unknown keys, unsupported modes, bad parameter counts, malformed IDs and invalid timing values prevent transmission. Configuration must be at most 8192 bytes. Missing or invalid configuration is reported in the new log if the SD card is writable. Configuration loads only at boot. Serial accepts only stop/close, not diagnostic requests. The demo has no clock source: `Date:` stays blank; timestamps are uptime milliseconds, not wall-clock time.
+Unknown keys, unsupported modes, bad parameter counts, malformed IDs and invalid timing values prevent transmission. Configuration must be at most 8192 bytes. Missing or invalid configuration prevents recording and exposes the SD card for correction; no default PID requests are sent. Configuration loads only at boot. Serial accepts only stop/close, not diagnostic requests. The demo has no clock source: `Date:` stays blank; timestamps are uptime milliseconds, not wall-clock time.
 
 ## Logs and counters
 

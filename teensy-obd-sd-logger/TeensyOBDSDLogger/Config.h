@@ -3,8 +3,11 @@
 #include "DiagnosticCore.h"
 #include "Schedule.h"
 namespace automatic {
+enum class OperatingMode { Obd, Can };
+inline const char *modeName(OperatingMode mode){return mode==OperatingMode::Can?"can":"obd";}
 constexpr unsigned MAX_LIVE_PIDS=255-7; // Exclude continuation bitmap IDs.
 struct Config {
+  OperatingMode mode=OperatingMode::Obd;
   uint32_t bitrate=500000,startup=5000,duration=0,responseTimeout=70;
   obd::Address address; Job jobs[MAX_LIVE_PIDS];size_t count=0;
 };
@@ -27,12 +30,30 @@ inline bool parseConfig(JsonVariantConst input,Config &c,const char *&error){
   c=Config(); error="Invalid config.json";
   if(!input.is<JsonObjectConst>())return false;
   JsonObjectConst o=input.as<JsonObjectConst>();
-  for(JsonPairConst kv:o){const char *k=kv.key().c_str();
-    if(strcmp(k,"version")&&strcmp(k,"bitrate")&&strcmp(k,"address_bits")&&strcmp(k,"tx_id")&&strcmp(k,"rx_id")&&strcmp(k,"startup_delay_ms")&&strcmp(k,"run_duration_ms")&&strcmp(k,"response_timeout_ms")&&strcmp(k,"requests")){error="Unknown configuration key";return false;}
+  if(!o["version"].is<unsigned>()||(o["version"].as<unsigned>()!=1&&o["version"].as<unsigned>()!=2)){
+    error="version must be 1 or 2";return false;
   }
-  if(!o["version"].is<unsigned>()||o["version"].as<unsigned>()!=1){error="version must be 1";return false;}
+  const bool modern=o["version"].as<unsigned>()==2;
+  if(modern){
+    if(!o["operating_mode"].is<const char*>()){error="operating_mode required for version 2";return false;}
+    const char *mode=o["operating_mode"];
+    if(!strcmp(mode,"can"))c.mode=OperatingMode::Can;
+    else if(strcmp(mode,"obd")){error="operating_mode must be obd or can";return false;}
+  }
+  if(c.mode==OperatingMode::Can)c.startup=0;
+  for(JsonPairConst kv:o){const char *k=kv.key().c_str();
+    const bool common=!strcmp(k,"version")||!strcmp(k,"bitrate")||!strcmp(k,"startup_delay_ms")||!strcmp(k,"run_duration_ms");
+    const bool selector=modern&&!strcmp(k,"operating_mode");
+    const bool diagnostic=c.mode==OperatingMode::Obd&&(!strcmp(k,"address_bits")||!strcmp(k,"tx_id")||!strcmp(k,"rx_id")||!strcmp(k,"response_timeout_ms")||!strcmp(k,"requests"));
+    if(!common&&!selector&&!diagnostic){error="Unknown or mode-incompatible configuration key";return false;}
+  }
   if(!readUInt(o,"bitrate",c.bitrate,125000,1000000)||
      (c.bitrate!=125000&&c.bitrate!=250000&&c.bitrate!=500000&&c.bitrate!=1000000)){error="Unsupported bitrate";return false;}
+  if(!readUInt(o,"startup_delay_ms",c.startup,0,600000)||!readUInt(o,"run_duration_ms",c.duration,0,86400000)){
+    error="Timing outside allowed range";return false;
+  }
+  if(c.duration&&c.duration<1000){error="Nonzero run duration must be at least 1000 ms";return false;}
+  if(c.mode==OperatingMode::Can){error=nullptr;return true;}
   uint32_t bits=11;
   if(!readUInt(o,"address_bits",bits,11,29)||(bits!=11&&bits!=29)){error="address_bits must be 11 or 29";return false;}
   c.address.extended=bits==29;c.address.tx=bits==29?0x18DB33F1:0x7DF;

@@ -8,13 +8,15 @@
 #include "Config.h"
 #include "CaptureRing.h"
 #include <new>
+#include <util/atomic.h>
 #include "RunControl.h"
 #include "Discovery.h"
 #include "Mode4Feedback.h"
 #include "LogRotation.h"
 #include "Readiness.h"
 #include "StoragePaths.h"
-constexpr char FIRMWARE_VERSION[]="1.1.0-dev6-folders";
+#include "CanRecording.h"
+constexpr char FIRMWARE_VERSION[]="1.2.0-dev1-dual-mode";
 automatic::Mode4Feedback mode4Feedback;
 Adafruit_SSD1306 oled(128,32,&Wire,-1);
 bool oledReady=false;
@@ -37,7 +39,8 @@ bool traceExchangeShown=false;
 #endif
 automatic::Config config;
 automatic::Schedule schedule;
-const char *fallbackNotice=nullptr;
+bool modeKnown=false,configurationRejected=false;
+bool canMode(){return config.mode==automatic::OperatingMode::Can;}
 bool configGood=false, running=false, finished=false, closing=false, completedClean=false;
 uint32_t runStart=0, setupAt=0, summaryAt=0;
 bool responseSeen=false;
@@ -68,7 +71,17 @@ volatile bool captureEnabled=false;
 uint32_t flushAt=0;
 
 // ISR only copies frames. Never perform SD or USB work inside the interrupt.
-struct Captured { CAN_message_t frame; uint32_t ms,us,sequence; };
+struct Captured { CAN_message_t frame; uint64_t atUs; uint32_t ms,sequence; };
+bool popCapture(Captured &c); // Keep Arduino's generated prototypes after the type.
+automatic::CaptureClock captureClock;
+uint64_t canRecordStartUs=0;
+volatile bool canFrameSeen=false;
+volatile uint32_t lastCanFrameAt=0;
+uint64_t captureNowUs(){
+  uint64_t value;
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE){value=captureClock.sample(micros());}
+  return value;
+}
 constexpr uint32_t CAPTURE_CAPACITY=65536;
 automatic::CaptureRing<Captured> captureRing;
 Captured *captureMemory=nullptr;
@@ -99,8 +112,9 @@ void obdWrite(const char *text){
 // Background capture remains processed but is no longer exported to disk or console.
 void exchangeWrite(const char *text){obdWrite(text);}
 void obdStatus(const char *text,uint32_t id=0){
-  char line[180];if(id)snprintf(line,sizeof line,"%7lu  %s %03lX\n",(unsigned long)millis(),text,(unsigned long)id);
-  else snprintf(line,sizeof line,"%7lu  %s\n",(unsigned long)millis(),text);
+  const char *prefix=canMode()?"// ":"";
+  char line[180];if(id)snprintf(line,sizeof line,"%s%7lu  %s %03lX\n",prefix,(unsigned long)millis(),text,(unsigned long)id);
+  else snprintf(line,sizeof line,"%s%7lu  %s\n",prefix,(unsigned long)millis(),text);
   obdWrite(line);
 }
 
@@ -123,8 +137,9 @@ void pumpConsole(){
 }
 void recordAt(uint32_t when,const char *kind,uint32_t id,const char *text){
   char line[320];
-  if(id)snprintf(line,sizeof line,"%7lu  %s  %03lX  %s\n",(unsigned long)when,kind,(unsigned long)id,text?text:"");
-  else snprintf(line,sizeof line,"%7lu  %s  %s\n",(unsigned long)when,kind,text?text:"");
+  const char *prefix=canMode()?"// ":"";
+  if(id)snprintf(line,sizeof line,"%s%7lu  %s  %03lX  %s\n",prefix,(unsigned long)when,kind,(unsigned long)id,text?text:"");
+  else snprintf(line,sizeof line,"%s%7lu  %s  %s\n",prefix,(unsigned long)when,kind,text?text:"");
   // Keep the readable trace free of periodic scheduler/debug records.
   // Preserve faults, button actions, and final health counters in the sole log.
   if(closing||strstr(kind,"ERROR")||strstr(kind,"FAILED")||strstr(kind,"OVERFLOW")||strstr(kind,"OVERRUN")||!strcmp(kind,"BUS_OFF")||!strncmp(kind,"MODE04_",7)||!strncmp(kind,"PID_FILTER",10))obdWrite(line);
@@ -165,14 +180,21 @@ bool fileWriteError(){return obdfile.getWriteError();}
 void flushFiles(){obdfile.flush();}
 void closeFiles(){obdfile.close();}
 bool writeHeaders(){
-  char header[320];
+  char header[512];
+  if(canMode()){
+    snprintf(header,sizeof header,
+      "base hex timestamps absolute\nno internal events logged\n"
+      "// SkiDrive Classical CAN capture; calendar time unavailable\n"
+      "// Firmware: %s\n// Logger: %s\n// File: %s\n"
+      "// Operating mode: can; bitrate: %lu; listen-only; standard and extended IDs\n"
+      "// Config FNV1a: %08lX\n// Frame timestamps: elapsed seconds since capture start; software receive time\n",
+      FIRMWARE_VERSION,loggerName,obdName,(unsigned long)config.bitrate,(unsigned long)configFingerprint);
+    const size_t n=strlen(header),written=obdfile.write((const uint8_t*)header,n);
+    storageUsed+=written;return written==n;
+  }
   snprintf(header,sizeof header,"OBD-SkillLogger Version 1.0.0\nFirmware: %s\nLogger: %s\nFile: %s\n",FIRMWARE_VERSION,loggerName,obdName);
   size_t used=strlen(header);
-  if(fallbackNotice){
-    snprintf(header+used,sizeof header-used,
-      "Configuration: default live PID discovery (%s)\nCAN: 500000 bps, 11-bit, TX 7DF, RX 0\nRequests: determined after discovery\n",
-      fallbackNotice);
-  }else if(configGood){
+  if(configGood){
     snprintf(header+used,sizeof header-used,
       "Config FNV1a: %08lX\nCAN: %lu bps, %u-bit, TX %lX, RX %lX (0 = functional response range)\nRequests: %u\n",
       (unsigned long)configFingerprint,(unsigned long)config.bitrate,config.address.extended?29:11,
@@ -195,7 +217,8 @@ void pumpLog(){
 }
 void onCan(const CAN_message_t &f){
   if(!captureEnabled)return;
-  Captured c;c.frame=f;c.ms=millis();c.us=micros();c.sequence=++captureSeen;
+  Captured c;c.frame=f;c.atUs=captureNowUs();c.ms=millis();c.sequence=++captureSeen;
+  if(canMode()){lastCanFrameAt=c.ms;canFrameSeen=true;}
   if(f.flags.overrun)++hardwareOverruns;
   if(!captureRing.push(c)){++captureDrops;return;}
   uint32_t used=captureRing.size();if(used>capturePeak)capturePeak=used;
@@ -254,7 +277,7 @@ void traceExchangeRequest(uint32_t now){
 class HardwareSink:public obd::Sink{
 public:
   bool send(const obd::Frame &f)override{
-    if(!ready || !sdGood || loggingFault)return false;
+    if(canMode() || !configGood || !ready || !sdGood || loggingFault)return false;
     CAN_message_t msg;msg.id=f.id;msg.flags.extended=f.extended;msg.len=f.len;
     memcpy(msg.buf,f.data,8);msg.seq=false;
     // Check and write an inactive mailbox atomically: never enter library TX queue.
@@ -332,6 +355,7 @@ public:
 } sink;
 obd::DiagnosticCore diagnostics(sink);
 bool startRequest(const uint8_t *p,size_t n){
+  if(canMode()||!configGood)return false;
   uint32_t now=millis();if(!requestSpacing.ready(now))return false;
   uint32_t expected[8];size_t count=discovery.expected(p,n,expected);
   char detail[100];snprintf(detail,sizeof detail,"min_gap_ms=10 initial_timeout_ms=%lu expected_ecus=%u early_completion=%u",(unsigned long)config.responseTimeout,unsigned(count),unsigned(count>0||addressing.rx!=0));
@@ -349,7 +373,7 @@ void exposeSD(){
 }
 bool openLogSegment(){
   for(;nextLogIndex<1000000;++nextLogIndex){
-    snprintf(obdName,sizeof obdName,"/LOGS/%02u_%s.TXT",nextLogIndex,loggerName);
+    snprintf(obdName,sizeof obdName,"/LOGS/%02u_%s.%s",nextLogIndex,loggerName,canMode()?"ASC":"TXT");
     if(!SD.exists(obdName)){
       obdfile=SD.open(obdName,FILE_WRITE);++nextLogIndex;
       if(obdfile)return true;
@@ -362,11 +386,12 @@ bool openLogSegment(){
 void updateStatus(){
   char reply[640];
   const char *state=finished?(completedClean?"ready":"failed"):closing?"preparing":"not_prepared";
-  snprintf(reply,sizeof reply,"@UPDATE {\"protocol\":1,\"product\":\"SkiDrive\",\"device_type\":\"OBD_LOGGER\",\"id\":\"%s\",\"firmware\":\"%s\",\"hardware\":\"unassigned\",\"state\":\"%s\",\"sd_mounted\":%s,\"oled_ready\":%s,\"logging_fault\":%s,\"sd_failures\":%lu,\"log_drops\":%lu,\"capture_drops\":%lu,\"can_esr1\":%lu,\"stop_reason\":\"%s\",\"flash_enabled\":false}\n",
-    loggerName,FIRMWARE_VERSION,state,sdMounted?"true":"false",oledReady?"true":"false",loggingFault?"true":"false",(unsigned long)sdFailures,(unsigned long)logDrops,(unsigned long)captureDrops,(unsigned long)(canStarted?FLEXCANb_ESR1(CAN1):0),lastStopReason);
+  snprintf(reply,sizeof reply,"@UPDATE {\"protocol\":1,\"product\":\"SkiDrive\",\"device_type\":\"OBD_LOGGER\",\"id\":\"%s\",\"firmware\":\"%s\",\"hardware\":\"unassigned\",\"operating_mode\":\"%s\",\"state\":\"%s\",\"sd_mounted\":%s,\"oled_ready\":%s,\"logging_fault\":%s,\"sd_failures\":%lu,\"log_drops\":%lu,\"capture_drops\":%lu,\"can_esr1\":%lu,\"stop_reason\":\"%s\",\"flash_enabled\":false}\n",
+    loggerName,FIRMWARE_VERSION,modeKnown?automatic::modeName(config.mode):"unknown",state,sdMounted?"true":"false",oledReady?"true":"false",loggingFault?"true":"false",(unsigned long)sdFailures,(unsigned long)logDrops,(unsigned long)captureDrops,(unsigned long)(canStarted?FLEXCANb_ESR1(CAN1):0),lastStopReason);
   queueConsole(reply);
 }
 void pollStop(){
+  if(configGood&&!canMode()){
   unsigned buttonEvents=mode4Button.update(digitalRead(MODE4_BUTTON_PIN)==LOW,millis());
   if(buttonEvents&automatic::Mode4Button::Pressed)note("MODE04_PRESSED","Pin 40 LOW detected; hold for 2 seconds");
   if(buttonEvents&automatic::Mode4Button::Released)note("MODE04_RELEASED","Pin 40 HIGH; button armed for next press");
@@ -375,6 +400,7 @@ void pollStop(){
       mode4Requested=true;mode4Feedback.queued();
       note("MODE04_QUEUED",running?"Will send after current transaction":"Will send after startup/discovery completes");
     }else note("MODE04_IGNORED","Stopping, configuration failure, or request/feedback already active");
+  }
   }
   static char command[32];static unsigned length=0;static bool overflow=false;
   for(unsigned i=0;i<32&&Serial.available();++i){
@@ -414,7 +440,6 @@ void setup(){
       automatic::ensureDirectory(SD,automatic::LOG_DIRECTORY);
     if(!storageDirectoriesGood)queueConsole("SD_DIRECTORY_ERROR; cannot create/open CONFIG or LOGS\n");
     const char *configPath=automatic::configPath(SD);
-    const bool configExists=SD.exists(configPath);
     File file=SD.open(configPath,FILE_READ);
     queueConsole("CONFIG_PATH ");queueConsole(configPath);queueConsole("\n");
     const char *reason="Missing config.json";
@@ -433,15 +458,14 @@ void setup(){
       }
     }else if(file)reason=file.isDirectory()?"config.json is a directory":"config.json exceeds 8192 bytes";
     if(file)file.close();
+    modeKnown=configGood;
     if(!configGood){
       note("CONFIG_ERROR",reason);
-      config=automatic::Config();
-      fallbackNotice=configExists?"BAD CONFIG":"NO CONFIG";
-      configGood=true;
-      note("CONFIG_FALLBACK","Discover and poll confirmed Mode 01 live PIDs");
+      configurationRejected=true;loggingFault=true;
+      lastStopReason="Configuration missing or invalid; no CAN activity";
     }
   }
-  if(sdMounted && storageDirectoriesGood && openLogSegment())sdGood=writeHeaders();
+  if(configGood && sdMounted && storageDirectoriesGood && openLogSegment())sdGood=writeHeaders();
   if(!sdGood)queueConsole("SD_INIT_FAILED; requests disabled\n");
   if(configGood){
     captureMemory=static_cast<Captured*>(extmem_malloc(sizeof(Captured)*CAPTURE_CAPACITY));
@@ -466,10 +490,14 @@ void setup(){
   if(configGood&&sdGood){
     addressing=config.address;configuredRate=config.bitrate;
     diagnostics.setResponseWindow(config.responseTimeout);
-    captureEnabled=true;configureCan(config.bitrate,false);canStarted=true;
-    note("CAPTURE_START","ACK enabled; diagnostic requests delayed; no resets during polling");
-    if(!fallbackNotice)note("CONFIG_OK","SD configuration accepted; stop/close supported; startup delay begins");
-    char b[120];snprintf(b,sizeof b,"jobs=%u startup_ms=%lu duration_ms=%lu response_window_ms=%lu TX=%08lX RX=%08lX",
+    captureEnabled=!canMode();configureCan(config.bitrate,canMode());canStarted=true;
+    note("CAPTURE_START",canMode()?"Listen-only; capture begins after startup delay; no diagnostic traffic":
+      "ACK enabled; diagnostic requests delayed; no resets during polling");
+    note("CONFIG_OK","SD configuration accepted; stop/close supported; startup delay begins");
+    char b[120];
+    if(canMode())snprintf(b,sizeof b,"mode=can listen_only=1 bitrate=%lu startup_ms=%lu duration_ms=%lu",
+      (unsigned long)config.bitrate,(unsigned long)config.startup,(unsigned long)config.duration);
+    else snprintf(b,sizeof b,"jobs=%u startup_ms=%lu duration_ms=%lu response_window_ms=%lu TX=%08lX RX=%08lX",
       unsigned(config.count),(unsigned long)config.startup,(unsigned long)config.duration,
       (unsigned long)config.responseTimeout,(unsigned long)addressing.tx,(unsigned long)addressing.rx);
     note("CONFIG",b);
@@ -506,7 +534,7 @@ void summary(){
 void stopRun(const char *reason){
   if(closing||finished)return;
   lastStopReason=reason;
-  if(running){
+  if(running&&!canMode()){
     uint32_t end=millis();
     if(automatic::durationReached(config.duration,runStart,end))end=runStart+config.duration-1;
     schedule.finish(config.jobs,config.count,end);
@@ -515,6 +543,7 @@ void stopRun(const char *reason){
   running=false;ready=false;diagnostics.cancel();transactionEnded=false;
   noInterrupts();captureEnabled=false;uint32_t boundaryFlags=canStarted?FLEXCANb_IFLAG1(CAN1):0;interrupts();
   if(canStarted){can.disableFIFOInterrupt();can.setBaudRate(configuredRate,LISTEN_ONLY);}
+  if(canMode())closing=true; // Persist the capture-boundary/FIFO-pending note in ASC.
   char boundary[120];snprintf(boundary,sizeof boundary,"fifo_pending=%u; capture ends here; later bus traffic excluded; draining software queue",
     unsigned((boundaryFlags&FLEXCAN_IFLAG1_BUF5I)!=0));note("CAPTURE_STOP",boundary);
   note("STOP",reason);obdStatus(reason);closing=true;
@@ -548,9 +577,10 @@ void updateDisplay(){
   if(!firstDraw && uint32_t(now-lastDraw)<100)return;
   firstDraw=false;lastDraw=now;
 
-  const bool recentReply=obdReplySeen && uint32_t(now-lastObdReplyAt)<5000;
-  const bool lost=missedProbes>=2 ||
-    (obdReplySeen && !recentReply) || !strcmp(stopDisplay,"ECU disconnected");
+  const bool recentReply=canMode()?automatic::canTrafficRecent(canFrameSeen,lastCanFrameAt,now):
+    obdReplySeen && uint32_t(now-lastObdReplyAt)<5000;
+  const bool lost=!canMode()&&(missedProbes>=2 ||
+    (obdReplySeen && !recentReply) || !strcmp(stopDisplay,"ECU disconnected"));
   const bool fault=loggingFault || (closing&&!configGood) ||
     (finished&&!completedClean);
   const bool flowing=recentReply && !closing && !finished && !fault;
@@ -561,18 +591,18 @@ void updateDisplay(){
   if(fault)badge="ERR";
 
   const char *status=running?"RECORDING":"CONNECTING";
-  if(!closing && !finished){
+  if(!canMode()&&!closing && !finished){
     if(mode4Button.holding())status="HOLD CLEAR";
     if(mode4Feedback.phase==automatic::Mode4Feedback::Waiting)status="CLEAR WAIT";
     if(mode4Feedback.phase==automatic::Mode4Feedback::Success)status="CLEAR OK";
     if(mode4Feedback.phase==automatic::Mode4Feedback::Failure)status="CLEAR FAIL";
-    if(fallbackNotice && (!strcmp(status,"CONNECTING")||!strcmp(status,"RECORDING")) && (now/2000u)%2u==0)
-      status=fallbackNotice;
     if(lost)status="LINK LOST";
   }
+  if(canMode()&&!closing&&!finished)status=running?(recentReply?"RECORDING":"NO TRAFFIC"):"STARTING";
   if(closing)status="SAVING";
   if(finished)status=lost?"LINK LOST":fileTransferActive?"SD FILES":"STOPPED";
   if(fault)status=sdMounted?"LOG ERROR":"NO SD CARD";
+  if(configurationRejected)status="CONFIG ERROR";
 
   oled.clearDisplay();
   oled.setTextWrap(false);
@@ -580,8 +610,9 @@ void updateDisplay(){
   oled.setTextSize(1);
   oled.setCursor(0,1);oled.print(loggerName);
 
-  oled.setTextSize(2);
-  oled.setCursor((128-12*strlen(status))/2,12);oled.print(status);
+  const unsigned statusScale=strlen(status)>10?1:2;
+  oled.setTextSize(statusScale);
+  oled.setCursor((128-6*statusScale*strlen(status))/2,12);oled.print(status);
   oled.setTextSize(1);
 
   // Keep the startup snapshot plus successful writes. A FAT free-space scan
@@ -595,7 +626,8 @@ void updateDisplay(){
     snprintf(storage,sizeof storage,"SD : %u%%",percent);
   }
   // Alternate the right badge to retain the full ID at the original font size.
-  const char *headerBadge=((now/2000u)%2u)?storage:badge;
+  char activity[16];snprintf(activity,sizeof activity,"%s %s",modeKnown?(canMode()?"CAN":"OBD"):"---",badge);
+  const char *headerBadge=((now/2000u)%2u)?storage:activity;
   const int badgeWidth=max(32,int(6*strlen(headerBadge)+1));
   const int badgeX=128-badgeWidth;
   oled.fillRoundRect(badgeX,0,badgeWidth,9,2,SSD1306_WHITE);
@@ -607,7 +639,7 @@ void updateDisplay(){
   // Traveling bright pulse over a dotted track. Hold its exact position on loss.
   if(flowing)pulsePosition=uint8_t((pulsePosition+4)%128);
   for(int x=0;x<128;x+=4)oled.drawPixel(x,30,SSD1306_WHITE);
-  if(obdReplySeen){
+  if(canMode()?canFrameSeen:obdReplySeen){
     for(int x=0;x<128;++x){
       const uint8_t distance=uint8_t((x+128-pulsePosition)%128);
       if(distance<20)oled.drawPixel(x,30,SSD1306_WHITE);
@@ -626,6 +658,7 @@ void updateDisplay(){
 }
 
 void loop(){
+  captureNowUs(); // Extend micros() even while a connected bus is silent.
   const uint32_t loopNow=micros();
   if(loopTimingStarted){
     const uint32_t gap=loopNow-lastLoopUs;
@@ -642,11 +675,17 @@ void loop(){
     for(unsigned i=0;i<128&&logCount<logCapacity-512&&popCapture(c);++i){
       obd::Frame f={};f.id=c.frame.id;f.extended=c.frame.flags.extended;f.len=c.frame.len;
       memcpy(f.data,c.frame.buf,8);
-      if(!closing&&diagnostics.busy()&&addressing.accepts(f)&&!c.frame.flags.remote)
+      if(canMode()){
+        char line[128];
+        if(automatic::formatCanAsc(line,sizeof line,c.atUs-canRecordStartUs,f.id,f.extended,
+                                   c.frame.flags.remote,f.len,f.data)){
+          obdWrite(line);
+        }else {note("CAN_FRAME_INVALID","Classical CAN ID/DLC cannot be represented");loggingFault=true;}
+      }else if(!closing&&diagnostics.busy()&&addressing.accepts(f)&&!c.frame.flags.remote)
         obd::traceCan(obdWrite,"RX",f.extended,f.id,c.ms,f.data,f.len);
       ++captureDrained;
       if(c.frame.flags.overrun){note("CAN_OVERRUN","Hardware receive overrun");loggingFault=true;}
-      if(!closing&&!c.frame.flags.remote)diagnostics.receive(f,c.ms);
+      if(!canMode()&&!closing&&!c.frame.flags.remote)diagnostics.receive(f,c.ms);
     }
     if(captureDrops!=reportedCaptureDrops){reportedCaptureDrops=captureDrops;note("RX_QUEUE_OVERFLOW","Capture lost");loggingFault=true;}
     if(logDrops!=reportedLogDrops){reportedLogDrops=logDrops;queueConsole("LOG_QUEUE_OVERFLOW\n");}
@@ -663,6 +702,18 @@ void loop(){
     if(hardwareOverruns){loggingFault=true;}
     if(((FLEXCANb_ESR1(CAN1)>>4)&3u)>=2u){note("BUS_OFF","Automatic run stopped");loggingFault=true;}
     if(loggingFault||!sdGood)stopRun("Logging or CAN failure; reset required");
+    else if(canMode()){
+      const uint32_t now=millis();
+      const auto action=automatic::passiveAction(running,stopRequested,setupAt,runStart,now,config.startup,config.duration);
+      if(action==automatic::PassiveAction::StopUser)stopRun("User requested stop");
+      else if(action==automatic::PassiveAction::Start){
+        canRecordStartUs=captureNowUs();runStart=now;running=true;captureEnabled=true;
+        note("RUN_START","Classical CAN listen-only; no requests, acknowledgements or error frames");
+      }else if(action==automatic::PassiveAction::StopDuration){
+        stopRun("Configured duration finished");
+      }
+      if(running&&uint32_t(now-summaryAt)>=1000){summaryAt=now;summary();}
+    }
     else {
       if(stopRequested&&!running&&!diagnostics.busy())stopRun("User stopped during startup/discovery");
       if(captureRing.size()==0)diagnostics.tick(millis());
@@ -675,8 +726,8 @@ void loop(){
       uint32_t now=millis();
       if(!closing&&!running&&!stopRequested&&uint32_t(now-setupAt)>=config.startup){
         if(!discoveryStarted){
-          discoveryStarted=true;discovery.begin(fallbackNotice!=nullptr);obdStatus("Connecting...");
-          note("DISCOVERY_START",fallbackNotice?"Mode 01 live data support maps":"Modes 01/02(frame 00)/06/09; at most two attempts per range; collecting expected-responder maps");
+          discoveryStarted=true;discovery.begin(false);obdStatus("Connecting...");
+          note("DISCOVERY_START","Modes 01/02(frame 00)/06/09; at most two attempts per range; collecting expected-responder maps");
         }
         if(discovery.busy()){
           if(!diagnostics.busy()&&captureRing.size()==0&&requestSpacing.ready(millis())){
@@ -688,22 +739,6 @@ void loop(){
         }else {
           char b[140];snprintf(b,sizeof b,"ECUs=%u overflow=%u; maps used for early completion and conservative PID filtering",unsigned(discovery.count),unsigned(discovery.overflow));note("DISCOVERY_DONE",b);
           if(!discovery.count)note("DISCOVERY_UNKNOWN","No valid support maps; absence is not proof of unsupported data");
-          if(fallbackNotice){
-            if(discovery.overflow){
-              loggingFault=true;
-              stopRun("Default discovery exceeded ECU inventory capacity");
-              return;
-            }
-            for(unsigned pid=1;pid<=255;++pid){
-              if(pid%32==0)continue; // Support bitmap, not a live value.
-              const uint8_t request[]={1,uint8_t(pid)};
-              if(discovery.requestSupport(request,sizeof request)!=automatic::Discovery::Supported)continue;
-              auto &job=config.jobs[config.count++];
-              job.bytes[0]=request[0];job.bytes[1]=request[1];
-              job.length=sizeof request;
-              job.interval=250;
-            }
-          }
           for(size_t e=0;e<discovery.count;++e)for(size_t j=0;j<config.count;++j){
             const auto &job=config.jobs[j];auto support=discovery.support(e,job.bytes[0],job.length>1?job.bytes[1]:0,job.length>2?job.bytes[2]:0);
             snprintf(b,sizeof b,"job=%u mode=%02X identifier=%02X frame=%02X status=%s",unsigned(j+1),job.bytes[0],job.length>1?job.bytes[1]:0,job.length>2?job.bytes[2]:0,automatic::Discovery::name(support));

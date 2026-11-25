@@ -4,9 +4,32 @@
 #include <iostream>
 bool parse(const char *text){JsonDocument d;assert(!deserializeJson(d,text));automatic::Config c;const char *error;return automatic::parseConfig(d.as<JsonVariantConst>(),c,error);}
 int main(){
+  for(const char *example:{"config.obd.example.json","config.can.example.json","config.template.json"}){
+    std::ifstream input(example);assert(input);JsonDocument exampleDocument;
+    assert(!deserializeJson(exampleDocument,input));automatic::Config exampleConfig;const char *why;
+    assert(automatic::parseConfig(exampleDocument.as<JsonVariantConst>(),exampleConfig,why));
+  }
+  assert(parse(R"({"version":2,"operating_mode":"can"})"));
+  assert(parse(R"({"version":2,"operating_mode":"can","bitrate":1000000,"startup_delay_ms":100,"run_duration_ms":1000})"));
+  assert(parse(R"({"version":2,"operating_mode":"obd","requests":[{"request":"01 0C","interval_ms":250}]})"));
+  for(const char *bad:{R"({})",R"({"version":2})",R"({"version":3,"operating_mode":"can"})",
+      R"({"version":1,"operating_mode":"can","requests":[{"request":"03","interval_ms":10}]})",
+      R"({"version":2,"operating_mode":"CAN"})",R"({"version":2,"operating_mode":null})",
+      R"({"version":2,"operating_mode":"can","requests":[]})",
+      R"({"version":2,"operating_mode":"can","address_bits":11})",
+      R"({"version":2,"operating_mode":"can","tx_id":"123"})",
+      R"({"version":2,"operating_mode":"can","rx_id":"123"})",
+      R"({"version":2,"operating_mode":"can","response_timeout_ms":70})",
+      R"({"version":2,"operating_mode":"can","bitrate":333333})",
+      R"({"version":2,"operating_mode":"can","run_duration_ms":1})"})assert(!parse(bad));
+  {JsonDocument can;assert(!deserializeJson(can,R"({"version":2,"operating_mode":"can"})"));
+    automatic::Config passive;const char *why;
+    assert(automatic::parseConfig(can.as<JsonVariantConst>(),passive,why));
+    assert(passive.mode==automatic::OperatingMode::Can&&passive.count==0&&passive.startup==0&&passive.duration==0&&passive.bitrate==500000);}
   JsonDocument d;std::ifstream file("config.json");assert(!deserializeJson(d,file));
   automatic::Config c;const char *error;assert(automatic::parseConfig(d.as<JsonVariantConst>(),c,error));
   assert(c.duration==0&&c.bitrate==500000&&c.count==64&&c.responseTimeout==70);
+  assert(c.mode==automatic::OperatingMode::Obd);
   bool mode6=false;for(size_t i=0;i<c.count;++i){assert(c.jobs[i].bytes[0]!=4&&c.jobs[i].bytes[0]!=5&&c.jobs[i].bytes[0]!=8);if(c.jobs[i].bytes[0]==6)mode6=true;}assert(mode6);
   assert(parse(R"({"version":1,"requests":[{"request":"06 00","interval_ms":10}]})"));
   assert(!parse(R"({"version":1,"requests":[{"request":"06","interval_ms":10}]})"));
