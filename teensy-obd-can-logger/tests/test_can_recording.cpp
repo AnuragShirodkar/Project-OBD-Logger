@@ -12,7 +12,15 @@ int main(int argc,char **argv){
   assert(automatic::passiveAction(true,true,100,600,1600,500,1000)==PassiveAction::StopUser);
   assert(automatic::passiveAction(true,false,100,600,1599,500,1000)==PassiveAction::Wait);
   assert(automatic::passiveAction(true,false,100,600,1600,500,1000)==PassiveAction::StopDuration);
-  assert(automatic::passiveAction(true,false,100,600,10000000,500,0)==PassiveAction::Wait);
+  assert(automatic::passiveAction(true,false,100,600,3600,500,0)==PassiveAction::Wait);
+  assert(automatic::passiveAction(true,false,100,600,3601,500,0)==PassiveAction::StopIdle);
+  assert(automatic::passiveAction(true,false,100,600,10000000,500,0,true,9999999)==PassiveAction::Wait);
+  assert(automatic::passiveAction(true,false,0,100,6000,0,0,true,3000)==PassiveAction::Wait);
+  assert(automatic::passiveAction(true,false,0,100,6001,0,0,true,3000)==PassiveAction::StopIdle);
+  assert(automatic::passiveAction(true,false,0,100,6001,0,0,true,5999)==PassiveAction::Wait);
+  assert(automatic::passiveAction(false,false,100,0,3100,5000,0)==PassiveAction::Wait);
+  assert(automatic::passiveAction(true,false,0,0xfffffff0u,2984,0,0,true,0xfffffff0u)==PassiveAction::Wait);
+  assert(automatic::passiveAction(true,false,0,0xfffffff0u,2985,0,0,true,0xfffffff0u)==PassiveAction::StopIdle);
   assert(automatic::passiveAction(true,false,0,0xfffffff0u,0x20u,0,48)==PassiveAction::StopDuration);
   automatic::CaptureClock clock;
   assert(clock.sample(0xfffffff0u)==0xfffffff0ull);
@@ -21,7 +29,8 @@ int main(int argc,char **argv){
   assert(clock.sample(0x20u)==0x200000020ull);
   assert(!automatic::canTrafficRecent(false,0,0));
   assert(automatic::canTrafficRecent(true,0xfffffff0u,10));
-  assert(!automatic::canTrafficRecent(true,100,5100));
+  assert(automatic::canTrafficRecent(true,100,3100));
+  assert(!automatic::canTrafficRecent(true,100,3101));
   // Elapsed timestamp survives micros wrap and long silent gaps with loop sampling.
   automatic::CaptureClock silent;
   const auto start=silent.sample(100);
@@ -42,16 +51,16 @@ int main(int argc,char **argv){
   assert(!automatic::formatCanAsc(line,sizeof line,0,1,false,false,9,data));
   assert(!automatic::formatCanAsc(line,sizeof line,0,1,false,false,1,nullptr));
   char header[768];
-  assert(automatic::formatCanAscHeader(header,sizeof header,"1.2.0-dev3-asc-layout","OBD_1757338",
+  assert(automatic::formatCanAscHeader(header,sizeof header,"1.2.0-dev4-idle-sd","OBD_1757338",
     "/LOGS/01_CAN_1757338.ASC",500000,0x1234ABCD));
-  assert(strstr(header,"// Firmware: 1.2.0-dev3-asc-layout\n"));
+  assert(strstr(header,"// Firmware: 1.2.0-dev4-idle-sd\n"));
   assert(strstr(header,"// Logger: OBD_1757338\n"));
   assert(strstr(header,"// Config FNV1a: 1234ABCD\n"));
   assert(strstr(header,"// Firmware:")<strstr(header,"base hex"));
   assert(strstr(header,"// CAN channel: 1\nBegin Triggerblock\n"));
   assert(!strstr(header,"\ndate "));
   assert(!automatic::formatCanAscHeader(header,32,"test","OBD_1","example.asc",500000,0));
-  assert(automatic::formatCanAscHeader(header,sizeof header,"1.2.0-dev3-asc-layout","OBD_1757338",
+  assert(automatic::formatCanAscHeader(header,sizeof header,"1.2.0-dev4-idle-sd","OBD_1757338",
     "/LOGS/01_CAN_1757338.ASC",500000,0x1234ABCD));
 
   if(argc>1){

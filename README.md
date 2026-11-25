@@ -7,7 +7,7 @@ configuration, documentation, firmware-package tools and OLED demo.
   source from commit `7021f2f`, firmware `1.1.0-dev6-folders`. It includes CONFIG/LOGS
   folders and the original manual OBD tester. Use version-1 OBD configurations.
 - [OBD CAN Logger - new project](teensy-obd-can-logger/README.md): current two-mode
-  firmware `1.2.0-dev3-asc-layout`. A selected configuration
+  firmware `1.2.0-dev4-idle-sd`. A selected configuration
   chooses OBD polling or passive Classical CAN capture; examples are included.
 
 Open the sketch inside the chosen project; both intentionally retain the Arduino

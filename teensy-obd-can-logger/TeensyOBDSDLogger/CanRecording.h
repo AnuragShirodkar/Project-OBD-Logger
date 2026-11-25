@@ -22,13 +22,19 @@ inline bool formatCanAscHeader(char *out,size_t capacity,const char *firmware,
     firmware,logger,file,(unsigned long)bitrate,(unsigned long)fingerprint);
   return n>=0&&size_t(n)<capacity;
 }
-enum class PassiveAction { Wait, Start, StopUser, StopDuration };
+constexpr uint32_t CAN_IDLE_TIMEOUT_MS=3000;
+inline bool canIdleExpired(bool seen,uint32_t last,uint32_t started,uint32_t now){
+  return uint32_t(now-(seen?last:started))>CAN_IDLE_TIMEOUT_MS;
+}
+enum class PassiveAction { Wait, Start, StopUser, StopDuration, StopIdle };
 inline PassiveAction passiveAction(bool running,bool stop,uint32_t setup,uint32_t started,
-                                  uint32_t now,uint32_t startup,uint32_t duration){
+                                  uint32_t now,uint32_t startup,uint32_t duration,
+                                  bool seen=false,uint32_t last=0){
   if(stop)return PassiveAction::StopUser;
   if(!running&&uint32_t(now-setup)>=startup)return PassiveAction::Start;
   if(running&&durationReached(duration,started,now))return PassiveAction::StopDuration;
-  return PassiveAction::Wait; // No bus-activity timeout: silence is not disconnection.
+  if(running&&canIdleExpired(seen,last,started,now))return PassiveAction::StopIdle;
+  return PassiveAction::Wait;
 }
 // Caller serializes ISR/main access, sampling at least once each micros() wrap.
 class CaptureClock {
@@ -38,7 +44,7 @@ public:
   uint64_t sample(uint32_t now){elapsed+=uint32_t(now-previous);previous=now;return elapsed;}
 };
 inline bool canTrafficRecent(bool seen,uint32_t last,uint32_t now){
-  return seen&&uint32_t(now-last)<5000;
+  return seen&&uint32_t(now-last)<=CAN_IDLE_TIMEOUT_MS;
 }
 inline bool formatCanAsc(char *out,size_t capacity,uint64_t us,uint32_t id,
                          bool extended,bool remote,uint8_t dlc,const uint8_t *data){

@@ -5,6 +5,7 @@
 - [x] Separate OBD TXT / CAN ASC names and selected-mode OLED indications.
 - [x] Version-1 OBD compatibility and explicit version-2 mode selector.
 - [x] Invalid/missing config stops without enabling CAN; no automatic OBD fallback.
+- [x] Fixed >3-second CAN idle stop, save/close and OLED SD ACCESS; restart to resume.
 - [ ] Flash and validate both modes on actual hardware when requested.
 - [ ] Reference-capture load/loss, no-ACK listen-only and intended-tool ASC import tests.
 - [ ] Physical storage rotation, stop/drain and SD/OLED fault tests.

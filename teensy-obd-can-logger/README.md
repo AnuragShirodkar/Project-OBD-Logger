@@ -15,7 +15,7 @@ This is the separate OBD/CAN Arduino sketch. Open `TeensyOBDSDLogger/TeensyOBDSD
 
 ## Dual-mode firmware (current behaviour)
 
-Firmware `1.2.0-dev3-asc-layout` selects OBD polling or Classical CAN listen-only
+Firmware `1.2.0-dev4-idle-sd` selects OBD polling or Classical CAN listen-only
 recording using one `/CONFIG/config.json`. See the [software handoff](docs/dual-mode-software-handoff.md)
 and `config.obd.example.json` / `config.can.example.json`. Version-1 configs remain
 OBD configs. New configs use version 2 and `operating_mode`. CAN recordings use
@@ -23,8 +23,11 @@ OBD configs. New configs use version 2 and `operating_mode`. CAN recordings use
 
 Missing or invalid config now shows CONFIG ERROR and exposes SD access without
 starting CAN. Automatic default PID polling is removed. Pin 40 is inactive in CAN
-mode. Silence shows NO TRAFFIC and does not stop CAN recording; use stop/close, a
-configured duration or fault shutdown. Battery-backed unplug shutdown is pending.
+mode. More than three seconds without valid CAN frames saves/closes the log,
+exposes SD access and shows SD ACCESS. The initial idle timer starts after the
+configured startup delay. Capture stays stopped until restart, even if traffic
+returns. This also applies to a quiet connected bus and a run_duration_ms of zero.
+Battery-backed unplug shutdown is pending.
 The OBD discovery, scheduling and Mode 04 details below apply only in OBD mode.
 
 ## Upload and run continuously

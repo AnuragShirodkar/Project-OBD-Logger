@@ -16,7 +16,7 @@
 #include "Readiness.h"
 #include "StoragePaths.h"
 #include "CanRecording.h"
-constexpr char FIRMWARE_VERSION[]="1.2.0-dev3-asc-layout";
+constexpr char FIRMWARE_VERSION[]="1.2.0-dev4-idle-sd";
 automatic::Mode4Feedback mode4Feedback;
 Adafruit_SSD1306 oled(128,32,&Wire,-1);
 bool oledReady=false;
@@ -607,7 +607,7 @@ void updateDisplay(){
   }
   if(canMode()&&!closing&&!finished)status=running?(recentReply?"RECORDING":"NO TRAFFIC"):"STARTING";
   if(closing)status="SAVING";
-  if(finished)status=lost?"LINK LOST":fileTransferActive?"SD FILES":"STOPPED";
+  if(finished)status=lost?"LINK LOST":fileTransferActive?(canMode()?"SD ACCESS":"SD FILES"):"STOPPED";
   if(fault)status=sdMounted?"LOG ERROR":"NO SD CARD";
   if(configurationRejected)status="CONFIG ERROR";
 
@@ -710,14 +710,24 @@ void loop(){
     if(((FLEXCANb_ESR1(CAN1)>>4)&3u)>=2u){note("BUS_OFF","Automatic run stopped");loggingFault=true;}
     if(loggingFault||!sdGood)stopRun("Logging or CAN failure; reset required");
     else if(canMode()){
-      const uint32_t now=millis();
-      const auto action=automatic::passiveAction(running,stopRequested,setupAt,runStart,now,config.startup,config.duration);
+      uint32_t now;
+      automatic::PassiveAction action;
+      // Use a coherent ISR activity snapshot. Commit the idle capture cutoff while
+      // masked so a subsequent frame cannot silently restart file-access mode.
+      ATOMIC_BLOCK(ATOMIC_RESTORESTATE){
+        now=millis();
+        action=automatic::passiveAction(running,stopRequested,setupAt,runStart,now,config.startup,config.duration,
+                                       canFrameSeen,lastCanFrameAt);
+        if(action==automatic::PassiveAction::StopIdle)captureEnabled=false;
+      }
       if(action==automatic::PassiveAction::StopUser)stopRun("User requested stop");
       else if(action==automatic::PassiveAction::Start){
         canRecordStartUs=captureNowUs();runStart=now;running=true;captureEnabled=true;
         note("RUN_START","Classical CAN listen-only; no requests, acknowledgements or error frames");
       }else if(action==automatic::PassiveAction::StopDuration){
         stopRun("Configured duration finished");
+      }else if(action==automatic::PassiveAction::StopIdle){
+        stopRun("No CAN traffic for more than 3 seconds");
       }
       if(running&&uint32_t(now-summaryAt)>=1000){summaryAt=now;summary();}
     }

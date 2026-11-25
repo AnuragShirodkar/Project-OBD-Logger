@@ -1,6 +1,6 @@
 # SkiDrive OBD and CAN mode - Windows integration
 
-Firmware: `1.2.0-dev3-asc-layout`. Same hardware, one CAN channel, pins TX 22 / RX 23.
+Firmware: `1.2.0-dev4-idle-sd`. Same hardware, one CAN channel, pins TX 22 / RX 23.
 This adds configuration-selected behaviour, not simultaneous OBD polling and raw capture.
 No hardware was flashed during this implementation.
 
@@ -15,7 +15,8 @@ The JSON `version` is the configuration schema version, not the firmware version
   (lowercase and case-sensitive).
 - Existing version-1 files continue to mean OBD; do not add operating_mode to v1.
 - Common options: bitrate (125000, 250000, 500000 or 1000000; default 500000),
-  startup_delay_ms (0..600000), run_duration_ms (0 continuous, or 1000..86400000).
+  startup_delay_ms (0..600000), run_duration_ms (0 disables the timed run limit, or
+  1000..86400000). CAN's three-second idle stop still applies when duration is zero.
 - CAN mode defaults to startup delay 0 and continuous recording. It has no PID
   requests, TX/RX IDs, address_bits or response_timeout_ms fields. Reject these
   rather than silently ignoring them. It captures standard and extended IDs together,
@@ -85,11 +86,20 @@ unchanged. The existing `hardware: "unassigned"` limitation also remains.
   OBD LIVE/OBD WAIT/OBD LOST. The moving bottom line follows the selected mode's recent
   received activity. Long messages such as CONFIG ERROR use a smaller font to fit.
 - CAN shows STARTING during configured delay, then NO TRAFFIC until frames arrive.
-  After five quiet seconds it returns to NO TRAFFIC but continues capturing. It does
-  not perform connection probes, PID discovery or ISO-TP flow-control transmission.
+  From dev4, more than 3000 ms without a valid received frame automatically stops
+  capture, drains buffered frames, closes the ASC file and exposes available SD
+  storage. If no frame ever arrived, idle time is measured from capture start,
+  excluding startup delay. Each received data or remote frame resets the idle timer.
+  Exactly 3000 ms does not trigger; the next eligible loop after that does. Drain,
+  write and USB enumeration time are additional, so SD visibility is not guaranteed
+  at exactly three seconds. OLED shows SAVING while closing, then SD ACCESS once
+  available; faults retain error priority. Its badge shows CAN USB/SD usage.
+  No connection probes, PID discovery or ISO-TP flow-control transmission are sent.
 - Pin 40 retains Mode 04 in OBD mode and is inactive in CAN mode. Program/recovery
-  hardware is independent. Stop CAN mode via app/serial stop/close, configured run
-  duration or real fault. After saving, USB file access becomes available.
+  hardware is independent. App/serial stop/close, configured duration and real faults
+  can also stop CAN recording. The idle cutoff uses an atomic ISR activity snapshot.
+  After any stop, capture stays off even when traffic resumes; restart only after
+  file transfers finish to record again. Do not automatically resume during MTP access.
 
 Listen-only mode sends **no acknowledgements**. Bench testing needs a transmitter and
 another active receiver. A lone transmitting ECU may retry or stop when no node ACKs.
@@ -103,12 +113,18 @@ must also be imported into the team's intended Kvaser/Vector analysis software b
 claiming compatibility with that tool. Some tools may require calendar headers; do not
 silently insert an invented date to satisfy them.
 
+This intentional idle policy also stops on a quiet connected vehicle bus or a bench
+with missing ACK/wrong bitrate; it is not proof that the cable was removed. Start
+traffic before the logger or set a suitable startup_delay_ms for bench preparation.
+No JSON field was added for this temporary fixed policy. OBD behavior is unchanged.
+
 Physical release checks: both configs on SD, old v1 OBD compatibility, rejected config
 with no CAN traffic, Mode 04 disabled in CAN mode, no CAN ACK/error/application TX in
-listen-only mode, both ID formats/RTR, silence/resumption, clean stop and drain,
+listen-only mode, both ID formats/RTR, three-second idle cutoff, no resume during MTP,
+clean stop and drain,
 rotation, SD/OLED failures, and reference-capture comparisons at representative loads.
 Capture-clock and formatting tests do not establish zero frame loss or maximum bus load.
 
 Battery-backed save-on-unplug remains pending hardware integration. A battery alone
-does not detect removal, and silence is not treated as proof of disconnection. Do not
+does not detect removal; the idle stop is only a policy, not proof of disconnection. Do not
 claim safe power-loss shutdown or pull all power as a substitute for a clean stop.
