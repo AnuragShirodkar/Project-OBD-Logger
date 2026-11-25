@@ -1,6 +1,6 @@
 # SkiDrive OBD and CAN mode - Windows integration
 
-Firmware: `1.2.0-dev1-dual-mode`. Same hardware, one CAN channel, pins TX 22 / RX 23.
+Firmware: `1.2.0-dev2-can-names`. Same hardware, one CAN channel, pins TX 22 / RX 23.
 This adds configuration-selected behaviour, not simultaneous OBD polling and raw capture.
 No hardware was flashed during this implementation.
 
@@ -53,9 +53,11 @@ unchanged. The existing `hardware: "unassigned"` limitation also remains.
 ## Recordings and OLED
 
 - OBD: current request/response TXT trace under LOGS. This is not an all-bus trace.
-- CAN: receive-only `.ASC` under LOGS, such as `01_OBD_1757338.ASC`. Enumerate both
+- CAN: receive-only `.ASC` under LOGS, such as `01_CAN_1757338.ASC`. Enumerate both
   TXT and ASC, plus legacy root recordings during migration. Do not overwrite downloads
   with matching basenames from different paths. Each extension has its own index scan.
+  The numeric ID is unchanged; USB/device_info still uses OBD_<ID>. Also accept
+  earlier OBD_<ID>.ASC filenames when reading existing recordings; do not rename them.
 - Keep the 250,000,000-byte cap per file, including header. Elapsed time remains continuous
   across rotation; each segment repeats the metadata/header. No calendar date is fabricated.
 - CAN frame rows use hexadecimal IDs/data, `x` for extended IDs, channel 1, Rx, d/r,

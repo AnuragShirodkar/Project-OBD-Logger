@@ -22,6 +22,22 @@ struct Storage {
   Handle open(const char *) const {return {present,directory};}
 };
 int main() {
+  char path[48];
+  assert(automatic::formatLogPath(path,sizeof path,1,"OBD_1757338",false));
+  assert(!strcmp(path,"/LOGS/01_OBD_1757338.TXT"));
+  assert(automatic::formatLogPath(path,sizeof path,1,"OBD_1757338",true));
+  assert(!strcmp(path,"/LOGS/01_CAN_1757338.ASC"));
+  assert(automatic::formatLogPath(path,sizeof path,2,"OBD_1757338",true));
+  assert(!strcmp(path,"/LOGS/02_CAN_1757338.ASC"));
+  assert(automatic::formatLogPath(path,sizeof path,999999,"OBD_16777215",true));
+  assert(!strcmp(path,"/LOGS/999999_CAN_16777215.ASC"));
+  assert(automatic::formatLogPath(path,sizeof path,1,"OBD_0",true));
+  assert(!strcmp(path,"/LOGS/01_CAN_0.ASC"));
+  assert(!automatic::formatLogPath(path,8,1,"OBD_1757338",true));
+  assert(!automatic::formatLogPath(path,sizeof path,0,"OBD_1757338",true));
+  assert(!automatic::formatLogPath(path,sizeof path,1000000,"OBD_1757338",true));
+  assert(!automatic::formatLogPath(path,sizeof path,1,"OBD_",true));
+  assert(!automatic::formatLogPath(path,sizeof path,1,"OBD_../x",true));
   Storage storage;
   assert(!strcmp(automatic::configPath(storage),automatic::LEGACY_CONFIG_PATH));
   storage.canonical=true;

@@ -16,7 +16,7 @@
 #include "Readiness.h"
 #include "StoragePaths.h"
 #include "CanRecording.h"
-constexpr char FIRMWARE_VERSION[]="1.2.0-dev1-dual-mode";
+constexpr char FIRMWARE_VERSION[]="1.2.0-dev2-can-names";
 automatic::Mode4Feedback mode4Feedback;
 Adafruit_SSD1306 oled(128,32,&Wire,-1);
 bool oledReady=false;
@@ -373,7 +373,7 @@ void exposeSD(){
 }
 bool openLogSegment(){
   for(;nextLogIndex<1000000;++nextLogIndex){
-    snprintf(obdName,sizeof obdName,"/LOGS/%02u_%s.%s",nextLogIndex,loggerName,canMode()?"ASC":"TXT");
+    if(!automatic::formatLogPath(obdName,sizeof obdName,nextLogIndex,loggerName,canMode()))return false;
     if(!SD.exists(obdName)){
       obdfile=SD.open(obdName,FILE_WRITE);++nextLogIndex;
       if(obdfile)return true;

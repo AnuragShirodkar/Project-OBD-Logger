@@ -21,12 +21,14 @@ while the canonical file exists. Support/root files such as mtpindex.dat are sep
 from user logs and are not relocated.
 
 New files keep the existing ID and index format: `/LOGS/01_OBD_1757338.TXT` for OBD,
-or `/LOGS/01_OBD_1757338.ASC` for passive CAN. The OBD_ prefix remains the stable
-device identity; it does not select the operating mode.
+or `/LOGS/01_CAN_1757338.ASC` for passive CAN from `1.2.0-dev2-can-names`.
+Both names use the same numeric hardware ID. USB identity stays OBD_1757338;
+only the CAN recording filename prefix changes.
 Number allocation and 250 MB rotation check the LOGS directory, avoid existing names
 and create the next segment there. Old root-level logs remain available. The first
 new folder log can have the same basename as an old root file because paths differ;
 Windows downloaders must preserve paths or resolve destination name collisions.
+Existing CAN recordings with the earlier OBD_ prefix are not renamed or deleted.
 
 If a regular file occupies CONFIG or LOGS, or the directory cannot be created/opened,
 recording cannot start; the firmware reports SD_DIRECTORY_ERROR on USB and retains
