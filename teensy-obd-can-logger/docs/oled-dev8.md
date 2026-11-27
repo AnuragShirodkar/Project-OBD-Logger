@@ -23,5 +23,21 @@ backgrounds, large main text and 16-byte I2C updates are preserved.
 No recording, CAN, JSON, storage, file-naming or permanent-ID behaviour changes.
 27 November: Teensy 4.1 Serial + MTP compilation succeeded. Checked all three
 activity labels and the longest storage text against the font bounds and minimum
-five-pixel activity/storage gap. Installation verification pending. Physical
-appearance and animation still require user observation.
+five-pixel activity/storage gap.
+
+Installed on **OBD_1757338** using the hidden CLI loader, exit code 0. Before
+software recovery entry, verified dev7 was stopped with its known USB-only
+pending-TX fault, zero SD/log/capture failure counters and a readable drained
+log. Normal update readiness was failed; this was recovery installation after
+closure verification. Existing config and logs were not changed.
+
+Post-restart USB verified firmware **1.2.0-dev8-oled-spacing**, unchanged device
+ID and SkiDrive display name, SD mounted and **oled_ready=true**. The startup
+query reported `not_prepared`, no fault and no drops at that instant; this is not
+a sustained traffic test. No manual button or graphical loader was needed.
+
+Image SHA-256:
+`72924C500AB3809102681A000DDE407C81180FAECA0519F068266DE5A60DF658`
+
+Physical appearance and animation still require user observation. Live capture
+and the receive-overrun fix are not validated by this UI-only installation check.
