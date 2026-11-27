@@ -18,7 +18,7 @@
 #include "Readiness.h"
 #include "StoragePaths.h"
 #include "CanRecording.h"
-constexpr char FIRMWARE_VERSION[]="1.2.0-dev7-oled";
+constexpr char FIRMWARE_VERSION[]="1.2.0-dev8-oled-spacing";
 automatic::Mode4Feedback mode4Feedback;
 Adafruit_SSD1306 oled(128,32,&Wire,-1);
 bool oledReady=false;
@@ -643,10 +643,7 @@ void updateDisplay(){
     (finished&&!completedClean);
   const bool flowing=recentReply && !closing && !finished && !fault;
 
-  const char *badge=flowing?"LIVE":lost?"LOST":"WAIT";
-  if(closing)badge="SAVE";
-  if(finished)badge=fileTransferActive?"USB":"OFF";
-  if(fault)badge="ERROR";
+  const char *badge=fault?"ERROR":flowing?"LIVE":"WAIT";
 
   const char *status=running?"RECORDING":"CONNECTING";
   if(!canMode()&&!closing && !finished){
@@ -686,10 +683,12 @@ void updateDisplay(){
     oled.setTextSize(1);oled.setCursor((128-6*strlen(identity))/2,21);oled.print(identity);
   }else{
     // All three labels remain visible; no alternating storage/activity badge.
-    // SD:100% (7 chars) fits the left 45 px; ERROR fits the centred 36 px.
-    drawDisplayBadge(0,45,storage);
-    drawDisplayBadge(46,36,badge);
-    drawDisplayBadge(103,25,modeKnown?(canMode()?"CAN":"OBD"):"---");
+    // Separate mode, centred activity and right-aligned storage. Even ERROR and
+    // SD:100% retain a five-pixel gap, without shrinking the existing font.
+    drawDisplayBadge(0,25,modeKnown?(canMode()?"CAN":"OBD"):"---");
+    const int activityWidth=max(25,int(6*strlen(badge)+3));
+    drawDisplayBadge((128-activityWidth)/2,activityWidth,badge);
+    drawDisplayBadge(85,43,storage);
     const unsigned statusScale=strlen(status)>10?1:2;
     oled.setTextSize(statusScale);
     oled.setCursor((128-6*statusScale*strlen(status))/2,12);oled.print(status);

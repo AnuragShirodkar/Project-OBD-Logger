@@ -1,8 +1,8 @@
 # SkiDrive OBD and CAN mode - Windows integration
 
-Current build: `1.2.0-dev7-oled` (installed on OBD_1757338; USB/OLED communication
-and startup log verified, physical OLED appearance pending). Details in
-[OLED notes](oled-dev7.md)). Dev6 Windows name, API display name and OBD log
+Current build: `1.2.0-dev8-oled-spacing` (OLED ordering/spacing correction).
+See [current OLED layout](oled-dev8.md) and the previous
+[OLED installation notes](oled-dev7.md). Dev6 Windows name, API display name and OBD log
 header were verified; see [dev6 installation check](test-reports/2026-11-27-dev6-skidrive-installation.md).
 Dev5 was installed on OBD_1757338; USB startup/readback checked, receive-load
 validation pending. See [receive-path notes](receive-path-dev5.md)
@@ -93,11 +93,11 @@ unchanged. The existing `hardware: "unassigned"` limitation also remains.
   discarded by the CAN controller. Controller/queue losses are reported as counters.
   Stop disables new capture and drains the software queue; an unread hardware FIFO
   at that boundary is reported by fifo_pending, not included in the software count.
-- From dev7 the top row shows estimated used SD percentage on the left, activity
-  in the centre and OBD/CAN mode on the right, simultaneously. A non-blocking
+- From dev8 the top row shows OBD/CAN mode on the left, activity in the centre
+  and estimated used SD percentage on the right, simultaneously. A non-blocking
   startup screen shows SkiDrive and the numeric device ID. The moving bottom
   line follows the selected mode's recent received activity. Long messages such
-  as CONFIG ERROR use a smaller font to fit. See [OLED layout](oled-dev7.md).
+  as CONFIG ERROR use a smaller font to fit. See [OLED layout](oled-dev8.md).
 - CAN shows STARTING during configured delay, then NO TRAFFIC until frames arrive.
   From dev4, more than 3000 ms without a valid received frame automatically stops
   capture, drains buffered frames, closes the ASC file and exposes available SD

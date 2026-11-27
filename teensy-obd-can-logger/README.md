@@ -15,7 +15,7 @@ This is the separate OBD/CAN Arduino sketch. Open `TeensyOBDSDLogger/TeensyOBDSD
 
 ## Dual-mode firmware (current behaviour)
 
-Firmware `1.2.0-dev7-oled` selects OBD polling or Classical CAN listen-only
+Firmware `1.2.0-dev8-oled-spacing` selects OBD polling or Classical CAN listen-only
 recording using one `/CONFIG/config.json`. See the [software handoff](docs/dual-mode-software-handoff.md)
 and `config.obd.example.json` / `config.can.example.json`. Version-1 configs remain
 OBD configs. New configs use version 2 and `operating_mode`. CAN recordings use
