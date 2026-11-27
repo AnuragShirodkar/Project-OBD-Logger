@@ -1,0 +1,6016 @@
+{
+  "title": "SkiDrive firmware code flowcharts",
+  "version": "1.2.0-dev9-oled-gaps",
+  "source_commit": "125bcc7",
+  "pages": [
+    {
+      "number": 1,
+      "title": "Firmware at a glance",
+      "refs": [
+        "TeensyOBDSDLogger.ino: setup, loop, stopRun"
+      ],
+      "notes": [
+        "Reference: installed 1.2.0-dev9-oled-gaps. One mode per boot; this is not simultaneous OBD polling and passive CAN recording.",
+        "Solid arrows show control order. Yes/No labels identify decisions. A call box points to another detailed chart by its title.",
+        "The CAN interrupt runs independently of the repeating main loop. The loop must drain its queues before exposing SD storage.",
+        "This atlas covers project-owned runtime modules and the bundled MTP responder. External Arduino, SD/FAT, USB, CAN and graphics driver internals are dependency boundaries, not reconstructed here."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "Power on or reset"
+        },
+        {
+          "id": "b",
+          "kind": "call",
+          "label": "Identity and timer startup"
+        },
+        {
+          "id": "c",
+          "kind": "call",
+          "label": "SD and JSON configuration"
+        },
+        {
+          "id": "d",
+          "kind": "decision",
+          "label": "Configuration, timer, PSRAM and log ready?"
+        },
+        {
+          "id": "e",
+          "kind": "call",
+          "label": "Configure CAN1 and enter main loop"
+        },
+        {
+          "id": "f",
+          "kind": "decision",
+          "label": "Selected operating mode?"
+        },
+        {
+          "id": "g",
+          "kind": "call",
+          "label": "OBD: discover support, filter jobs, request and collect responses"
+        },
+        {
+          "id": "h",
+          "kind": "call",
+          "label": "CAN: listen only and record received frames"
+        },
+        {
+          "id": "i",
+          "kind": "call",
+          "label": "Common: buffers, SD, OLED, serial and health checks"
+        },
+        {
+          "id": "j",
+          "kind": "decision",
+          "label": "Stop, duration, idle or fault?"
+        },
+        {
+          "id": "k",
+          "kind": "call",
+          "label": "Stop capture, drain, save and close"
+        },
+        {
+          "id": "l",
+          "kind": "end",
+          "label": "Expose available SD over MTP; restart required to record again"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": ""
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": ""
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": "Yes"
+        },
+        {
+          "source": "d",
+          "target": "k",
+          "label": "No"
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": ""
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": "OBD"
+        },
+        {
+          "source": "f",
+          "target": "h",
+          "label": "CAN"
+        },
+        {
+          "source": "g",
+          "target": "i",
+          "label": ""
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": ""
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": ""
+        },
+        {
+          "source": "j",
+          "target": "f",
+          "label": "No: next loop"
+        },
+        {
+          "source": "j",
+          "target": "k",
+          "label": "Yes"
+        },
+        {
+          "source": "k",
+          "target": "l",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 2,
+      "title": "Identity and independent timer",
+      "refs": [
+        "usb_identity.c: startup_middle_hook",
+        "CaptureTimer.h: begin, now",
+        "CanRecording.h: CaptureClock"
+      ],
+      "notes": [
+        "Numeric identity = HW_OCOTP_MAC0 & 0xFFFFFF. Permanent ID remains OBD_<number>; friendly USB/MTP name is SkiDrive_<number>. Firmware updates do not rewrite the fuse ID.",
+        "GPT2 is reserved. PERCLK must be the undivided 24 MHz crystal source. A running GPT2 or unexpected clock makes begin() return false.",
+        "Reset wait is bounded by 100,000 polls. GPT2 prescaler 23 gives 1 MHz; free-running mode uses no timer IRQ. Initial offset is sampled from micros().",
+        "captureNowUs() briefly serializes a 64-bit extension of unsigned 32-bit GPT2 differences. Main-loop sampling must occur at least once per approximately 71-minute wrap. OBD millisecond traces/scheduling still use millis()."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "Core calls startup_middle_hook after RAM initialization"
+        },
+        {
+          "id": "b",
+          "kind": "process",
+          "label": "Read fuse number; build stable ID and SkiDrive USB descriptor"
+        },
+        {
+          "id": "c",
+          "kind": "process",
+          "label": "setup(): enable GPT2 clock gates"
+        },
+        {
+          "id": "d",
+          "kind": "decision",
+          "label": "GPT2 free and PERCLK expected?"
+        },
+        {
+          "id": "e",
+          "kind": "process",
+          "label": "Request GPT2 software reset"
+        },
+        {
+          "id": "f",
+          "kind": "decision",
+          "label": "Reset clears within bounded polling?"
+        },
+        {
+          "id": "g",
+          "kind": "process",
+          "label": "Set PR=23; disable IRQ; clear flags; set epoch offset"
+        },
+        {
+          "id": "h",
+          "kind": "process",
+          "label": "Enable free-running GPT2 at 1 MHz"
+        },
+        {
+          "id": "i",
+          "kind": "end",
+          "label": "Return timer ready; setup continues"
+        },
+        {
+          "id": "j",
+          "kind": "fault",
+          "label": "Return timer unavailable; setup later disables CAN"
+        },
+        {
+          "id": "k",
+          "kind": "call",
+          "label": "During loop/ISR: extend counter and sample timestamps"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": ""
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": ""
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": "Yes"
+        },
+        {
+          "source": "d",
+          "target": "j",
+          "label": "No"
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": ""
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": "Yes"
+        },
+        {
+          "source": "f",
+          "target": "j",
+          "label": "No"
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": ""
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": ""
+        },
+        {
+          "source": "i",
+          "target": "k",
+          "label": "During runtime"
+        }
+      ]
+    },
+    {
+      "number": 3,
+      "title": "Setup: interfaces, storage and config selection",
+      "refs": [
+        "TeensyOBDSDLogger.ino: setup",
+        "StoragePaths.h: configPath, ensureDirectory"
+      ],
+      "notes": [
+        "Serial is initialized at 115200. GPIO40 uses INPUT_PULLUP. MTP starts with a silent debug stream; the SD filesystem is not yet registered for host access.",
+        "OLED probes I2C 0x3C then 0x3D. The first responding address is tried; it does not fall through to the second address if oled.begin fails. Wire is set to 400 kHz.",
+        "SD usage is scanned once at startup. CONFIG/LOGS must be directories; a regular file with either name is an error and is not overwritten.",
+        "Canonical /CONFIG/config.json wins whenever present, even if invalid. Root /config.json is tried only when canonical is absent.",
+        "Selected file must be a regular file <=8192 bytes. Compute FNV1a over its bytes, rewind, parse with nesting limit 4, reject trailing non-whitespace, then close it."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "Begin setup; initialize timer, serial, button and MTP"
+        },
+        {
+          "id": "b",
+          "kind": "process",
+          "label": "Probe OLED; initialize if found; continue even if unavailable"
+        },
+        {
+          "id": "c",
+          "kind": "decision",
+          "label": "SD.begin succeeds?"
+        },
+        {
+          "id": "d",
+          "kind": "process",
+          "label": "Read capacity/usage; ensure CONFIG and LOGS directories"
+        },
+        {
+          "id": "e",
+          "kind": "process",
+          "label": "Choose canonical config or legacy root fallback"
+        },
+        {
+          "id": "f",
+          "kind": "decision",
+          "label": "Regular config file within size limit?"
+        },
+        {
+          "id": "g",
+          "kind": "process",
+          "label": "Fingerprint file; deserialize; validate schema; reject trailing data"
+        },
+        {
+          "id": "h",
+          "kind": "decision",
+          "label": "JSON and schema valid?"
+        },
+        {
+          "id": "i",
+          "kind": "process",
+          "label": "Set configGood and modeKnown; attempt new log and header"
+        },
+        {
+          "id": "j",
+          "kind": "fault",
+          "label": "CONFIG_ERROR; reject config; mark fault and stop reason"
+        },
+        {
+          "id": "k",
+          "kind": "process",
+          "label": "No mounted SD: leave config/log unavailable"
+        },
+        {
+          "id": "l",
+          "kind": "call",
+          "label": "Continue to memory and CAN startup"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": ""
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": "Yes"
+        },
+        {
+          "source": "c",
+          "target": "k",
+          "label": "No"
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": ""
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": ""
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": "Yes"
+        },
+        {
+          "source": "f",
+          "target": "j",
+          "label": "No"
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": ""
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": "Yes"
+        },
+        {
+          "source": "h",
+          "target": "j",
+          "label": "No"
+        },
+        {
+          "source": "i",
+          "target": "l",
+          "label": ""
+        },
+        {
+          "source": "j",
+          "target": "l",
+          "label": ""
+        },
+        {
+          "source": "k",
+          "target": "l",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 4,
+      "title": "JSON: version, mode and common options",
+      "refs": [
+        "Config.h: Config, parseConfig, readUInt, hexId"
+      ],
+      "notes": [
+        "Only schema versions 1 and 2 are implemented. Version 1 means OBD. Version 2 requires exact lowercase operating_mode \"obd\" or \"can\".",
+        "Defaults: 500000 bit/s, startup 5000 ms for OBD or 0 for CAN, run duration 0, response timeout 70 ms. Missing optional unsigned values preserve defaults.",
+        "Allowed bitrates: 125000, 250000, 500000, 1000000. Startup: 0..600000 ms. Duration: 0 (continuous), or 1000..86400000 ms.",
+        "Unknown/mode-incompatible keys reject the entire file. CAN has no requests/address/timeout fields. The proposed filters object and version 3 are NOT implemented.",
+        "Missing/invalid config does not trigger default polling in this build."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "parseConfig resets Config defaults"
+        },
+        {
+          "id": "b",
+          "kind": "decision",
+          "label": "Top-level JSON object and version 1 or 2?"
+        },
+        {
+          "id": "c",
+          "kind": "decision",
+          "label": "Version 2?"
+        },
+        {
+          "id": "d",
+          "kind": "decision",
+          "label": "Valid required operating_mode?"
+        },
+        {
+          "id": "e",
+          "kind": "process",
+          "label": "Set selected mode; set CAN startup default to 0"
+        },
+        {
+          "id": "f",
+          "kind": "process",
+          "label": "Check every key against mode allowlist"
+        },
+        {
+          "id": "g",
+          "kind": "decision",
+          "label": "Keys, bitrate and timing values valid?"
+        },
+        {
+          "id": "h",
+          "kind": "decision",
+          "label": "CAN mode?"
+        },
+        {
+          "id": "i",
+          "kind": "end",
+          "label": "Accept CAN configuration; no diagnostic jobs"
+        },
+        {
+          "id": "j",
+          "kind": "call",
+          "label": "Continue OBD address/job validation"
+        },
+        {
+          "id": "x",
+          "kind": "fault",
+          "label": "Reject configuration and return reason"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": "Yes"
+        },
+        {
+          "source": "b",
+          "target": "x",
+          "label": "No"
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": "Yes"
+        },
+        {
+          "source": "c",
+          "target": "e",
+          "label": "No: OBD"
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": "Yes"
+        },
+        {
+          "source": "d",
+          "target": "x",
+          "label": "No"
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": ""
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": ""
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": "Yes"
+        },
+        {
+          "source": "g",
+          "target": "x",
+          "label": "No"
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": "Yes"
+        },
+        {
+          "source": "h",
+          "target": "j",
+          "label": "No"
+        }
+      ]
+    },
+    {
+      "number": 5,
+      "title": "JSON: OBD addresses and request jobs",
+      "refs": [
+        "Config.h: parseConfig",
+        "DiagnosticCore.h: parseHex, Address"
+      ],
+      "notes": [
+        "address_bits is 11 or 29. Defaults: 7DF or 18DB33F1 TX; rx_id=0 selects functional responses. Supplied TX/RX IDs are hex strings WITHOUT 0x.",
+        "IDs must fit the address width. RX=0 requires functional TX; physical RX requires non-functional TX; TX and RX cannot be equal.",
+        "response_timeout_ms remains accepted from 10..10000 ms; 70 is the default. It is not fixed by firmware, despite the intended software UI default.",
+        "1..64 unique jobs. Request bytes are 1-2 hex digits separated by spaces/tabs, maximum 3 bytes. Required interval_ms: 10..3600000.",
+        "Allowed request shapes: 01 PID, 02 PID frame, 03, 06 MID, 07, 09 INFO, 0A. Mode 04 is button-only. Modes 05/08 are rejected."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "Continue OBD config parsing"
+        },
+        {
+          "id": "b",
+          "kind": "process",
+          "label": "Validate width; apply functional TX/RX defaults"
+        },
+        {
+          "id": "c",
+          "kind": "decision",
+          "label": "Supplied hex IDs and address pair valid?"
+        },
+        {
+          "id": "d",
+          "kind": "decision",
+          "label": "Timing/timeout and requests array valid?"
+        },
+        {
+          "id": "e",
+          "kind": "process",
+          "label": "For each job: only request and interval_ms keys"
+        },
+        {
+          "id": "f",
+          "kind": "decision",
+          "label": "Hex bytes, service shape and interval valid?"
+        },
+        {
+          "id": "g",
+          "kind": "decision",
+          "label": "Duplicate request bytes already present?"
+        },
+        {
+          "id": "h",
+          "kind": "process",
+          "label": "Store job; increment count"
+        },
+        {
+          "id": "i",
+          "kind": "decision",
+          "label": "More jobs?"
+        },
+        {
+          "id": "j",
+          "kind": "end",
+          "label": "Accept OBD configuration"
+        },
+        {
+          "id": "x",
+          "kind": "fault",
+          "label": "Reject whole configuration"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": ""
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": "Yes"
+        },
+        {
+          "source": "c",
+          "target": "x",
+          "label": "No"
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": "Yes"
+        },
+        {
+          "source": "d",
+          "target": "x",
+          "label": "No"
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": ""
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": "Yes"
+        },
+        {
+          "source": "f",
+          "target": "x",
+          "label": "No"
+        },
+        {
+          "source": "g",
+          "target": "x",
+          "label": "Yes"
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": "No"
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": ""
+        },
+        {
+          "source": "i",
+          "target": "e",
+          "label": "Yes"
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": "No"
+        }
+      ]
+    },
+    {
+      "number": 6,
+      "title": "Setup: memory, log and CAN enable gates",
+      "refs": [
+        "TeensyOBDSDLogger.ino: setup, configureCan",
+        "ReceivePipeline.h: begin"
+      ],
+      "notes": [
+        "The first file/header is attempted only with valid config, mounted SD and valid directories. Failure leaves sdGood=false and reports SD_INIT_FAILED.",
+        "Timer failure sets CAPTURE_TIMER_ERROR, configGood=false and a fault. PSRAM allocations are attempted when configGood is true, even if the log failed.",
+        "Allocate 65536 Captured slots and 4096 LogLine slots externally; both pointers must have high address nibble 7. Failure frees allocations and prevents CAN startup.",
+        "Initialize slots, migrate startup text from the 64-line emergency queue, then bind 2048 DTCM staging slots plus PSRAM backlog.",
+        "CAN1: TX22/RX23, 16 mailboxes, FIFO ACCEPT_ALL, callback + wrapper IRQ priority64. Start listen-only first; OBD switches to TX mode. OBD capture begins immediately; CAN capture waits for startup delay."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "After config/file setup"
+        },
+        {
+          "id": "b",
+          "kind": "decision",
+          "label": "Config valid but GPT2 unavailable?"
+        },
+        {
+          "id": "c",
+          "kind": "fault",
+          "label": "Mark timer fault; invalidate config"
+        },
+        {
+          "id": "d",
+          "kind": "decision",
+          "label": "Config still valid?"
+        },
+        {
+          "id": "e",
+          "kind": "process",
+          "label": "Allocate and verify external capture/log memory"
+        },
+        {
+          "id": "f",
+          "kind": "decision",
+          "label": "Both pointers are actual PSRAM?"
+        },
+        {
+          "id": "g",
+          "kind": "process",
+          "label": "Initialize queues and staging pipeline"
+        },
+        {
+          "id": "h",
+          "kind": "fault",
+          "label": "Free memory; PSRAM_ERROR; invalidate config"
+        },
+        {
+          "id": "i",
+          "kind": "decision",
+          "label": "configGood AND sdGood?"
+        },
+        {
+          "id": "j",
+          "kind": "process",
+          "label": "Set address/response window; configure CAN1"
+        },
+        {
+          "id": "k",
+          "kind": "process",
+          "label": "Set setupAt; leave startup/polling to loop"
+        },
+        {
+          "id": "l",
+          "kind": "process",
+          "label": "Set closing=true if config or log unavailable"
+        },
+        {
+          "id": "m",
+          "kind": "end",
+          "label": "Enter main loop"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": "Yes"
+        },
+        {
+          "source": "b",
+          "target": "d",
+          "label": "No"
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": ""
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": "Yes"
+        },
+        {
+          "source": "d",
+          "target": "i",
+          "label": "No"
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": ""
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": "Yes"
+        },
+        {
+          "source": "f",
+          "target": "h",
+          "label": "No"
+        },
+        {
+          "source": "g",
+          "target": "i",
+          "label": ""
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": ""
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": "Yes"
+        },
+        {
+          "source": "i",
+          "target": "k",
+          "label": "No"
+        },
+        {
+          "source": "j",
+          "target": "k",
+          "label": ""
+        },
+        {
+          "source": "k",
+          "target": "l",
+          "label": ""
+        },
+        {
+          "source": "l",
+          "target": "m",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 7,
+      "title": "Main loop: exact service order",
+      "refs": [
+        "TeensyOBDSDLogger.ino: loop"
+      ],
+      "notes": [
+        "This loop repeats continuously. CAN interrupts can run between these main-loop operations.",
+        "transferCapture moves at most 512 records per call. Decode drains at most 128 records while logCount < logCapacity-512, preserving space for decoded text.",
+        "CAN errors are read up to eight per iteration. Only actual error bits/counters/fault-state changes produce CAN_ERROR notes; hardware overruns or bus-off trigger stop.",
+        "A finished logger services USB/MTP and OLED but does not automatically start another recording. Configuration edits require a restart."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "Next main-loop iteration"
+        },
+        {
+          "id": "b",
+          "kind": "process",
+          "label": "Extend clock; update loop-gap maximum; transfer staging"
+        },
+        {
+          "id": "c",
+          "kind": "process",
+          "label": "pollStop: button + serial; pump console; update OLED"
+        },
+        {
+          "id": "d",
+          "kind": "decision",
+          "label": "finished?"
+        },
+        {
+          "id": "e",
+          "kind": "process",
+          "label": "Pump console; MTP.loop; pump console; return"
+        },
+        {
+          "id": "f",
+          "kind": "call",
+          "label": "If config good: transfer and process capture backlog"
+        },
+        {
+          "id": "g",
+          "kind": "call",
+          "label": "If config good and not closing: health gates, then CAN or OBD control"
+        },
+        {
+          "id": "h",
+          "kind": "decision",
+          "label": "Closing and both receive queues empty; no final summary yet?"
+        },
+        {
+          "id": "i",
+          "kind": "process",
+          "label": "Write final summary and CAPTURE_DRAINED marker"
+        },
+        {
+          "id": "j",
+          "kind": "process",
+          "label": "Pump up to 128 log lines + console; call MTP.loop"
+        },
+        {
+          "id": "k",
+          "kind": "call",
+          "label": "If due and diagnostics idle: write/flush every 1000 ms"
+        },
+        {
+          "id": "l",
+          "kind": "call",
+          "label": "If closing, summary done and text queue empty: final file close and expose SD"
+        },
+        {
+          "id": "m",
+          "kind": "end",
+          "label": "Return; next iteration"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": ""
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": ""
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": "Yes"
+        },
+        {
+          "source": "d",
+          "target": "f",
+          "label": "No"
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": ""
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": ""
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": "Yes"
+        },
+        {
+          "source": "h",
+          "target": "j",
+          "label": "No"
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": ""
+        },
+        {
+          "source": "j",
+          "target": "k",
+          "label": ""
+        },
+        {
+          "source": "k",
+          "target": "l",
+          "label": ""
+        },
+        {
+          "source": "l",
+          "target": "m",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 8,
+      "title": "CAN interrupt and receive callback",
+      "refs": [
+        "TeensyOBDSDLogger.ino: captureCanInterrupt, onCan"
+      ],
+      "notes": [
+        "IRQ priority64 is above default128 and below SysTick32. Wrapper duration includes preemption, not only useful work.",
+        "Check FIFO overflow before each bundled library ISR pass. On first observed overrun save GPT2 time, flags and ESR. Always clear the overflow flag.",
+        "The bundled library removes one FIFO frame per invocation and calls onCan. The wrapper repeats up to eight passes while FIFO data remains.",
+        "onCan never writes SD, formats strings or touches the PSRAM frame backlog. It copies to internal DTCM only. A failed stage increments RXdrops.",
+        "Compare DWT duration converted at F_CPU_ACTUAL with GPT2 duration; differences >100 us increment clock_disagreements."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "CAN1 interrupt"
+        },
+        {
+          "id": "b",
+          "kind": "process",
+          "label": "Sample GPT2 + DWT; increment ISR entry count"
+        },
+        {
+          "id": "c",
+          "kind": "decision",
+          "label": "FIFO overflow bit set?"
+        },
+        {
+          "id": "d",
+          "kind": "process",
+          "label": "If capture enabled: save first details; count overrun; clear flag"
+        },
+        {
+          "id": "e",
+          "kind": "call",
+          "label": "Run bundled FlexCAN ISR; callback on each delivered frame"
+        },
+        {
+          "id": "f",
+          "kind": "decision",
+          "label": "onCan: captureEnabled?"
+        },
+        {
+          "id": "g",
+          "kind": "process",
+          "label": "Timestamp frame; sequence++; CAN activity update; count frame overrun"
+        },
+        {
+          "id": "h",
+          "kind": "process",
+          "label": "Push DTCM staging; count failed insert or update peak"
+        },
+        {
+          "id": "i",
+          "kind": "decision",
+          "label": "FIFO still pending and passes < 8?"
+        },
+        {
+          "id": "j",
+          "kind": "process",
+          "label": "Update maximum cycles/us/passes and clock disagreement count"
+        },
+        {
+          "id": "k",
+          "kind": "end",
+          "label": "Return from interrupt"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": ""
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": "Yes"
+        },
+        {
+          "source": "c",
+          "target": "e",
+          "label": "No"
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": ""
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": "RX callback"
+        },
+        {
+          "source": "e",
+          "target": "i",
+          "label": "No RX callback"
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": "Yes"
+        },
+        {
+          "source": "f",
+          "target": "i",
+          "label": "No"
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": ""
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": ""
+        },
+        {
+          "source": "i",
+          "target": "c",
+          "label": "Yes"
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": "No"
+        },
+        {
+          "source": "j",
+          "target": "k",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 9,
+      "title": "Receive queues, processing and raw export",
+      "refs": [
+        "ReceivePipeline.h",
+        "CaptureRing.h",
+        "TeensyOBDSDLogger.ino: transferCapture, loop"
+      ],
+      "notes": [
+        "DTCM staging: 2048 x 40 bytes =81920 bytes. PSRAM frame backlog:65536 x40 =2.5 MiB. Text queue:4096 x320 =1.25 MiB.",
+        "Single ISR producer; main-loop consumer. Atomic publish/load ordering prevents reading incomplete records. A blocked external transfer leaves staged records intact.",
+        "CAN ASC exports all controller-delivered standard/extended data/remote frames. Remote frames carry DLC but no invented payload bytes.",
+        "OBD raw RX export checks configured response IDs and width, including late/unmatched/queued-at-stop frames. Only non-remote frames feed active diagnostic decoding.",
+        "RX_QUEUE_OVERFLOW or hardware overrun is a fault. A sequence number starts at callback delivery; it cannot count frames lost before the callback."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "Main calls transferCapture"
+        },
+        {
+          "id": "b",
+          "kind": "decision",
+          "label": "Move limit not reached; backlog space and staged frame available?"
+        },
+        {
+          "id": "c",
+          "kind": "process",
+          "label": "Copy one record into PSRAM; repeat up to 512"
+        },
+        {
+          "id": "d",
+          "kind": "process",
+          "label": "Update PSRAM peak; enter bounded decoder drain"
+        },
+        {
+          "id": "e",
+          "kind": "decision",
+          "label": "CAN mode?"
+        },
+        {
+          "id": "f",
+          "kind": "process",
+          "label": "Validate Classical CAN ID/DLC; format ASC; fault if unrepresentable"
+        },
+        {
+          "id": "g",
+          "kind": "process",
+          "label": "OBD: trace accepted RX IDs, including RTR; others not exported"
+        },
+        {
+          "id": "h",
+          "kind": "process",
+          "label": "Increment captureDrained; flag frame overrun"
+        },
+        {
+          "id": "i",
+          "kind": "decision",
+          "label": "OBD, not closing, non-remote?"
+        },
+        {
+          "id": "j",
+          "kind": "call",
+          "label": "DiagnosticCore.receive using captured milliseconds"
+        },
+        {
+          "id": "k",
+          "kind": "process",
+          "label": "After drain: report new drops; mark capture loss as fault"
+        },
+        {
+          "id": "l",
+          "kind": "end",
+          "label": "Return to loop health gates"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": "Yes"
+        },
+        {
+          "source": "c",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "d",
+          "label": "No"
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": "For each drained frame"
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": "Yes"
+        },
+        {
+          "source": "e",
+          "target": "g",
+          "label": "No"
+        },
+        {
+          "source": "f",
+          "target": "h",
+          "label": ""
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": ""
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": ""
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": "Yes"
+        },
+        {
+          "source": "i",
+          "target": "k",
+          "label": "No / drain done"
+        },
+        {
+          "source": "j",
+          "target": "k",
+          "label": "After bounded drain"
+        },
+        {
+          "source": "k",
+          "target": "l",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 10,
+      "title": "Passive CAN recording control",
+      "refs": [
+        "CanRecording.h: passiveAction, canIdleExpired",
+        "TeensyOBDSDLogger.ino: loop CAN branch"
+      ],
+      "notes": [
+        "Priority: user stop; startup; duration; idle; otherwise wait. No OBD requests, ACK transmission or CAN error-frame transmission in listen-only mode.",
+        "At start: save the 64-bit elapsed origin, runStart and running=true; enable capture. Frames before capture enable are not queued.",
+        "Idle expiry is strictly more than 3000 ms since last valid callback frame, or capture start if none arrived. Startup delay is excluded.",
+        "Action/ISR activity snapshot and idle capture cutoff are serialized briefly, preventing a late frame from silently restarting SD-access mode.",
+        "run_duration_ms=0 removes duration limit but does not disable idle stop. No auto-resume once stopped."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "CAN branch after healthy loop gates"
+        },
+        {
+          "id": "b",
+          "kind": "decision",
+          "label": "stopRequested?"
+        },
+        {
+          "id": "c",
+          "kind": "call",
+          "label": "stopRun: user requested stop"
+        },
+        {
+          "id": "d",
+          "kind": "decision",
+          "label": "Not running and startup delay elapsed?"
+        },
+        {
+          "id": "e",
+          "kind": "process",
+          "label": "Set capture origin/runStart; running=true; captureEnabled=true"
+        },
+        {
+          "id": "f",
+          "kind": "decision",
+          "label": "Running and nonzero duration reached?"
+        },
+        {
+          "id": "g",
+          "kind": "call",
+          "label": "stopRun: configured duration finished"
+        },
+        {
+          "id": "h",
+          "kind": "decision",
+          "label": "Running and no callback traffic for >3000 ms?"
+        },
+        {
+          "id": "i",
+          "kind": "process",
+          "label": "Disable capture atomically; stopRun: no traffic"
+        },
+        {
+          "id": "j",
+          "kind": "process",
+          "label": "Wait/continue; summary every 1000 ms while running"
+        },
+        {
+          "id": "k",
+          "kind": "end",
+          "label": "Common log/USB service and next loop"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": "Yes"
+        },
+        {
+          "source": "b",
+          "target": "d",
+          "label": "No"
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": "Yes"
+        },
+        {
+          "source": "d",
+          "target": "f",
+          "label": "No"
+        },
+        {
+          "source": "e",
+          "target": "j",
+          "label": ""
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": "Yes"
+        },
+        {
+          "source": "f",
+          "target": "h",
+          "label": "No"
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": "Yes"
+        },
+        {
+          "source": "h",
+          "target": "j",
+          "label": "No"
+        },
+        {
+          "source": "c",
+          "target": "k",
+          "label": ""
+        },
+        {
+          "source": "g",
+          "target": "k",
+          "label": ""
+        },
+        {
+          "source": "i",
+          "target": "k",
+          "label": ""
+        },
+        {
+          "source": "j",
+          "target": "k",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 11,
+      "title": "OBD startup and discovery sequencing",
+      "refs": [
+        "TeensyOBDSDLogger.ino: loop OBD startup branch",
+        "Discovery.h"
+      ],
+      "notes": [
+        "Capture and CAN ACK capability are already enabled in OBD setup; diagnostic requests wait for startup delay.",
+        "Stop before running and while idle invokes stopRun. tick() runs only after both receive queues are empty.",
+        "At every ended/cancelled transaction, pending TX mailbox is a fatal stop; there is no reset-and-continue that could erase receive data.",
+        "Discovery starts once, with modes01/02(frame00)/06/09. A new request requires no active diagnostic transaction, no captured backlog and >=10 ms since last accepted request.",
+        "After discovery, conservative job filtering starts the fair schedule. With no enabled jobs stop; with no observed ECU keep unknown support rather than inventing unsupported evidence."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "OBD control branch"
+        },
+        {
+          "id": "b",
+          "kind": "process",
+          "label": "Handle early stop; tick diagnostics only when capturePending=0"
+        },
+        {
+          "id": "c",
+          "kind": "decision",
+          "label": "Transaction ended?"
+        },
+        {
+          "id": "d",
+          "kind": "decision",
+          "label": "Any hardware TX still pending?"
+        },
+        {
+          "id": "e",
+          "kind": "fault",
+          "label": "Stop: TX pending at transaction end"
+        },
+        {
+          "id": "f",
+          "kind": "process",
+          "label": "If discovery active and not closing: finishTransaction"
+        },
+        {
+          "id": "g",
+          "kind": "decision",
+          "label": "Not running/stopping/closing and startup elapsed?"
+        },
+        {
+          "id": "h",
+          "kind": "process",
+          "label": "Begin discovery once"
+        },
+        {
+          "id": "i",
+          "kind": "decision",
+          "label": "Discovery busy?"
+        },
+        {
+          "id": "j",
+          "kind": "process",
+          "label": "When request gates permit: get support-map request and transmit"
+        },
+        {
+          "id": "k",
+          "kind": "call",
+          "label": "Discovery done: inventory, support filtering and expected-ECU maps"
+        },
+        {
+          "id": "l",
+          "kind": "end",
+          "label": "Return to running OBD control / next loop"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": ""
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": "Yes"
+        },
+        {
+          "source": "c",
+          "target": "g",
+          "label": "No"
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": "Yes"
+        },
+        {
+          "source": "d",
+          "target": "f",
+          "label": "No"
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": ""
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": "Yes"
+        },
+        {
+          "source": "g",
+          "target": "l",
+          "label": "No"
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": ""
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": "Yes"
+        },
+        {
+          "source": "i",
+          "target": "k",
+          "label": "No"
+        },
+        {
+          "source": "j",
+          "target": "l",
+          "label": ""
+        },
+        {
+          "source": "k",
+          "target": "l",
+          "label": ""
+        },
+        {
+          "source": "e",
+          "target": "l",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 12,
+      "title": "Discovery maps, retries and range continuation",
+      "refs": [
+        "Discovery.h: request, observe, receive, finishTransaction"
+      ],
+      "notes": [
+        "Inventory has at most 8 ECUs, four service map sets and eight ranges each (00..E0). Mode02 support maps apply only to freeze frame00.",
+        "HardwareSink observes IDs from positive, negative or pending payloads while discovery is active; only valid fully assembled positive map payloads enter maps.",
+        "Receive requires current positive service, current range, exact map length and frame00 when applicable. Merge map bits using OR across retries.",
+        "Repeat base range once to catch a missed responder. Higher range retries once only when a preceding continuation promised a map that did not arrive.",
+        "Continue a range when any known ECU map sets its continuation bit, up to E0; then advance service. Eight-ECU overflow makes support filtering conservative."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "Discovery.begin(false): reset scan state"
+        },
+        {
+          "id": "b",
+          "kind": "process",
+          "label": "Build mode/range request (02 adds frame00)"
+        },
+        {
+          "id": "c",
+          "kind": "process",
+          "label": "Observe eligible responder ID; add if space, otherwise overflow"
+        },
+        {
+          "id": "d",
+          "kind": "decision",
+          "label": "Positive payload matches exact current map layout?"
+        },
+        {
+          "id": "e",
+          "kind": "process",
+          "label": "Store/OR 32 support bits; mark range known"
+        },
+        {
+          "id": "f",
+          "kind": "process",
+          "label": "At transaction completion: inspect retry conditions"
+        },
+        {
+          "id": "g",
+          "kind": "decision",
+          "label": "First attempt and map may be missing?"
+        },
+        {
+          "id": "h",
+          "kind": "process",
+          "label": "Retry same request once"
+        },
+        {
+          "id": "i",
+          "kind": "decision",
+          "label": "Range < E0 and any continuation bit?"
+        },
+        {
+          "id": "j",
+          "kind": "process",
+          "label": "Advance range by 0x20"
+        },
+        {
+          "id": "k",
+          "kind": "process",
+          "label": "Reset range; advance next service"
+        },
+        {
+          "id": "l",
+          "kind": "decision",
+          "label": "All four services complete?"
+        },
+        {
+          "id": "m",
+          "kind": "end",
+          "label": "Discovery inactive; use collected evidence"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": "On payload"
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": ""
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": "Yes"
+        },
+        {
+          "source": "d",
+          "target": "f",
+          "label": "No"
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": ""
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": ""
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": "Yes"
+        },
+        {
+          "source": "h",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "g",
+          "target": "i",
+          "label": "No"
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": "Yes"
+        },
+        {
+          "source": "j",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "i",
+          "target": "k",
+          "label": "No"
+        },
+        {
+          "source": "k",
+          "target": "l",
+          "label": ""
+        },
+        {
+          "source": "l",
+          "target": "b",
+          "label": "No"
+        },
+        {
+          "source": "l",
+          "target": "m",
+          "label": "Yes"
+        }
+      ]
+    },
+    {
+      "number": 13,
+      "title": "Supported jobs and expected responders",
+      "refs": [
+        "Discovery.h: support, requestSupport, expected",
+        "TeensyOBDSDLogger.ino: PID_FILTER"
+      ],
+      "notes": [
+        "support() returns SUPPORTED, UNSUPPORTED, UNKNOWN or NO_PID_BITMAP. A known terminal map rules out later ranges. PID00 is supported only when base range is known.",
+        "Mode02 frame other than00 stays unknown. Modes03/07/0A have no PID bitmap and remain enabled; a negative response does not currently suppress repeated polling.",
+        "Disable a configured job only when EVERY inventoried ECU explicitly marks it unsupported and there is no inventory overflow. Unknown/silent evidence is retained.",
+        "expected() returns supported ECU IDs only when every inventoried ECU has a known applicable answer; otherwise zero keeps the full response collection window.",
+        "Physical addressing always supplies one expected response ID. This is per-request expected-response checking, not per-ECU retry/backoff or automatic ECU recovery."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "For each configured request"
+        },
+        {
+          "id": "b",
+          "kind": "decision",
+          "label": "No bitmap, unknown inventory, discovery active or overflow?"
+        },
+        {
+          "id": "c",
+          "kind": "process",
+          "label": "KEEP job conservatively"
+        },
+        {
+          "id": "d",
+          "kind": "process",
+          "label": "Evaluate map/terminal-range evidence per ECU"
+        },
+        {
+          "id": "e",
+          "kind": "decision",
+          "label": "Any ECU supports requested identifier?"
+        },
+        {
+          "id": "f",
+          "kind": "decision",
+          "label": "Every ECU explicitly unsupported?"
+        },
+        {
+          "id": "g",
+          "kind": "process",
+          "label": "SKIP job; log unsupported reason"
+        },
+        {
+          "id": "h",
+          "kind": "process",
+          "label": "Log per-job KEEP/SKIP and final counts"
+        },
+        {
+          "id": "i",
+          "kind": "decision",
+          "label": "At least one enabled job?"
+        },
+        {
+          "id": "j",
+          "kind": "fault",
+          "label": "Stop: no enabled requests"
+        },
+        {
+          "id": "k",
+          "kind": "process",
+          "label": "Begin schedule; set runStart and lastContact"
+        },
+        {
+          "id": "l",
+          "kind": "call",
+          "label": "Before each request: construct known expected responder list"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": "Yes"
+        },
+        {
+          "source": "b",
+          "target": "d",
+          "label": "No"
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": ""
+        },
+        {
+          "source": "e",
+          "target": "c",
+          "label": "Yes"
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": "No"
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": "Yes"
+        },
+        {
+          "source": "f",
+          "target": "c",
+          "label": "No: unknown"
+        },
+        {
+          "source": "c",
+          "target": "h",
+          "label": ""
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": ""
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": "After all jobs"
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": "No"
+        },
+        {
+          "source": "i",
+          "target": "k",
+          "label": "Yes"
+        },
+        {
+          "source": "k",
+          "target": "l",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 14,
+      "title": "OBD polling priority and fair scheduling",
+      "refs": [
+        "TeensyOBDSDLogger.ino: running OBD branch",
+        "Schedule.h",
+        "RunControl.h: RequestSpacing"
+      ],
+      "notes": [
+        "Exactly one diagnostic transaction is active. Request submission gap is at least10 ms; this is not a guarantee that every configured job runs every10 ms.",
+        "Priority when idle: connection probe, queued Mode04, then fair round-robin scheduled job. No retry queue accumulates missed polling periods.",
+        "Schedule selects the first enabled due job from its cursor, tracks lateness/skipped periods, advances next by (skipped+1)*interval and moves cursor past the job.",
+        "Two missed dedicated connection probes stop the whole OBD run. Normal individual request timeouts alone are not an immediate whole-run stop.",
+        "User/duration stop stops scheduling and waits for the active exchange to finish (up to the diagnostic hard deadline). Serial prepare_update takes the immediate stopRun path instead."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "OBD running"
+        },
+        {
+          "id": "b",
+          "kind": "decision",
+          "label": "missedProbes >= 2?"
+        },
+        {
+          "id": "c",
+          "kind": "call",
+          "label": "Stop: ECU disconnected"
+        },
+        {
+          "id": "d",
+          "kind": "decision",
+          "label": "User stop or configured duration reached?"
+        },
+        {
+          "id": "e",
+          "kind": "process",
+          "label": "If diagnostics idle stop; otherwise wait for current exchange"
+        },
+        {
+          "id": "f",
+          "kind": "decision",
+          "label": "Diagnostics idle, capture empty and spacing ready?"
+        },
+        {
+          "id": "g",
+          "kind": "decision",
+          "label": "probeNeeded?"
+        },
+        {
+          "id": "h",
+          "kind": "process",
+          "label": "Submit 01 00 connection probe"
+        },
+        {
+          "id": "i",
+          "kind": "decision",
+          "label": "Mode04 queued?"
+        },
+        {
+          "id": "j",
+          "kind": "call",
+          "label": "Build Mode04 confirmation inventory and submit clear"
+        },
+        {
+          "id": "k",
+          "kind": "process",
+          "label": "Round-robin find enabled due job; update schedule counters"
+        },
+        {
+          "id": "l",
+          "kind": "process",
+          "label": "Submit selected request; increment sent only on success"
+        },
+        {
+          "id": "m",
+          "kind": "fault",
+          "label": "Any submission failure: stop logging"
+        },
+        {
+          "id": "n",
+          "kind": "end",
+          "label": "Summary if due; common service; next loop"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": "Yes"
+        },
+        {
+          "source": "b",
+          "target": "d",
+          "label": "No"
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": "Yes"
+        },
+        {
+          "source": "d",
+          "target": "f",
+          "label": "No"
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": "Yes"
+        },
+        {
+          "source": "f",
+          "target": "n",
+          "label": "No"
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": "Yes"
+        },
+        {
+          "source": "g",
+          "target": "i",
+          "label": "No"
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": "Yes"
+        },
+        {
+          "source": "i",
+          "target": "k",
+          "label": "No"
+        },
+        {
+          "source": "k",
+          "target": "l",
+          "label": "Due job"
+        },
+        {
+          "source": "k",
+          "target": "n",
+          "label": "None due"
+        },
+        {
+          "source": "h",
+          "target": "n",
+          "label": "Success"
+        },
+        {
+          "source": "j",
+          "target": "n",
+          "label": "Success"
+        },
+        {
+          "source": "l",
+          "target": "n",
+          "label": "Success"
+        },
+        {
+          "source": "h",
+          "target": "m",
+          "label": "Failed"
+        },
+        {
+          "source": "j",
+          "target": "m",
+          "label": "Failed"
+        },
+        {
+          "source": "l",
+          "target": "m",
+          "label": "Failed"
+        },
+        {
+          "source": "e",
+          "target": "n",
+          "label": ""
+        },
+        {
+          "source": "c",
+          "target": "n",
+          "label": ""
+        },
+        {
+          "source": "m",
+          "target": "n",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 15,
+      "title": "Start a request and submit hardware TX",
+      "refs": [
+        "TeensyOBDSDLogger.ino: startRequest, HardwareSink.send",
+        "DiagnosticCore.h: start, flow",
+        "DiagnosticCore.h: Address"
+      ],
+      "notes": [
+        "startRequest rejects CAN mode, invalid config and a submission gap below10 ms. It remembers trace request bytes/time and expected ECU IDs.",
+        "DiagnosticCore.start rejects an active exchange, bad bytes/length/service or expected-count >8; resets all 8 reassembly states; physical RX overrides expected list.",
+        "Build an 8-byte padded ISO-TP Single Frame: byte0=payload length, then service/parameters. Request active becomes true only after sink.send succeeds.",
+        "Sink rejects CAN mode/not-ready/log fault/SD failure. It masks interrupts briefly, finds TX_INACTIVE mailbox8..15 and writes directly; no library software TX queue.",
+        "Success records raw TX including flow controls. No available mailbox emits TX_FAILED. Functional flow IDs: 7E8->7E0, or 18DAF1xx->18DAxxF1. Physical addressing uses configured TX."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "startRequest"
+        },
+        {
+          "id": "b",
+          "kind": "decision",
+          "label": "OBD/config/spacing gates pass?"
+        },
+        {
+          "id": "c",
+          "kind": "process",
+          "label": "Get expected ECU IDs; remember exchange trace"
+        },
+        {
+          "id": "d",
+          "kind": "decision",
+          "label": "DiagnosticCore.start guards pass?"
+        },
+        {
+          "id": "e",
+          "kind": "process",
+          "label": "Reset request state; build padded Single Frame"
+        },
+        {
+          "id": "f",
+          "kind": "decision",
+          "label": "Sink mode/ready/SD/fault gates pass?"
+        },
+        {
+          "id": "g",
+          "kind": "process",
+          "label": "Briefly mask IRQs; scan TX mailboxes8..15; submit"
+        },
+        {
+          "id": "h",
+          "kind": "decision",
+          "label": "Exactly one frame accepted?"
+        },
+        {
+          "id": "i",
+          "kind": "process",
+          "label": "Log TX; mark request active; update submission gap clock"
+        },
+        {
+          "id": "j",
+          "kind": "end",
+          "label": "Return success; await responses"
+        },
+        {
+          "id": "x",
+          "kind": "fault",
+          "label": "Return failure; caller stops when required"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": "Yes"
+        },
+        {
+          "source": "b",
+          "target": "x",
+          "label": "No"
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": ""
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": "Yes"
+        },
+        {
+          "source": "d",
+          "target": "x",
+          "label": "No"
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": ""
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": "Yes"
+        },
+        {
+          "source": "f",
+          "target": "x",
+          "label": "No"
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": ""
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": "Yes"
+        },
+        {
+          "source": "h",
+          "target": "x",
+          "label": "No"
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 16,
+      "title": "ISO-TP: receive frame dispatch",
+      "refs": [
+        "DiagnosticCore.h: receive, matches, state, flow"
+      ],
+      "notes": [
+        "Ignore inactive requests, frames older than request start, rejected IDs/widths, DLC0 or DLC>8. Raw accepted OBD frames are exported separately, even when decoding ignores them.",
+        "Single Frame: declared length must be1..7 and fit DLC. First Frame: DLC must be8 and total length8..4095. A payload must match service/PID/frame or negative service before allocation.",
+        "One reassembly state per ECU, at most8; extra responders emit TOO_MANY_RESPONDERS. First Frame copies6 bytes, resets sequence to1 and block count0.",
+        "Flow Control is 30 08 0A: clear-to-send, block size8, minimum separation10 ms. A failed control TX clears receiving/pending and emits FLOW_CONTROL_TX_FAILED.",
+        "Incoming PCI3 or other types have no receive branch here. Repeated matching SF/FF can replace the same ECU state; this is not an overlapping-request matching engine."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "DiagnosticCore.receive(frame, captured ms)"
+        },
+        {
+          "id": "b",
+          "kind": "decision",
+          "label": "Active, not older than start, accepted ID and valid DLC?"
+        },
+        {
+          "id": "c",
+          "kind": "decision",
+          "label": "PCI nibble?"
+        },
+        {
+          "id": "d",
+          "kind": "decision",
+          "label": "SF length valid and payload matches current request?"
+        },
+        {
+          "id": "e",
+          "kind": "process",
+          "label": "Update lastResponse; get ECU state; copy SF payload"
+        },
+        {
+          "id": "f",
+          "kind": "call",
+          "label": "Complete assembled payload"
+        },
+        {
+          "id": "g",
+          "kind": "decision",
+          "label": "FF DLC/total length valid and first bytes match?"
+        },
+        {
+          "id": "h",
+          "kind": "process",
+          "label": "Update lastResponse; state length/have=6; reset sequence/block"
+        },
+        {
+          "id": "i",
+          "kind": "process",
+          "label": "Copy first6 bytes; mark receiving; send Flow Control"
+        },
+        {
+          "id": "j",
+          "kind": "call",
+          "label": "PCI2: continue existing ECU assembly"
+        },
+        {
+          "id": "k",
+          "kind": "end",
+          "label": "Ignore/return; malformed recognized frames emit reason"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": "Yes"
+        },
+        {
+          "source": "b",
+          "target": "k",
+          "label": "No"
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": "0: Single"
+        },
+        {
+          "source": "c",
+          "target": "g",
+          "label": "1: First"
+        },
+        {
+          "source": "c",
+          "target": "j",
+          "label": "2: Consecutive"
+        },
+        {
+          "source": "c",
+          "target": "k",
+          "label": "Other"
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": "Yes"
+        },
+        {
+          "source": "d",
+          "target": "k",
+          "label": "No"
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": "State available"
+        },
+        {
+          "source": "e",
+          "target": "k",
+          "label": "No free state"
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": "Yes"
+        },
+        {
+          "source": "g",
+          "target": "k",
+          "label": "No"
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": "State available"
+        },
+        {
+          "source": "h",
+          "target": "k",
+          "label": "No free state"
+        },
+        {
+          "source": "i",
+          "target": "k",
+          "label": ""
+        },
+        {
+          "source": "f",
+          "target": "k",
+          "label": ""
+        },
+        {
+          "source": "j",
+          "target": "k",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 17,
+      "title": "ISO-TP: consecutive frames and payload completion",
+      "refs": [
+        "DiagnosticCore.h: receive PCI2, complete"
+      ],
+      "notes": [
+        "Consecutive frames require an existing receiving state for that ECU. Expected sequence wraps modulo16. Copy min(remaining,7), and require enough DLC bytes.",
+        "Sequence/short-frame errors stop that ECU assembly and emit ISOTP_SEQUENCE_ERROR or SHORT_CONSECUTIVE_FRAME. An unrelated CF is ignored.",
+        "If incomplete, send another Flow Control after8 CFs. Complete payloads are matched again before validation.",
+        "Invalid length/value payloads are preserved in the trace but do not mark the ECU complete. Unreviewed definitions emit UNVERIFIED_DEFINITION and are still processed.",
+        "Positive means complete. Negative NRC78 means pending; other valid negative replies count as completion, not as positive data. A fresh pending reply updates lastResponse through the SF/FF path."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "Consecutive frame PCI2"
+        },
+        {
+          "id": "b",
+          "kind": "decision",
+          "label": "ECU assembly active?"
+        },
+        {
+          "id": "c",
+          "kind": "decision",
+          "label": "CF sequence/DLC valid?"
+        },
+        {
+          "id": "d",
+          "kind": "process",
+          "label": "Copy bytes; increment have; sequence modulo16; last=now"
+        },
+        {
+          "id": "e",
+          "kind": "decision",
+          "label": "have == total length?"
+        },
+        {
+          "id": "f",
+          "kind": "process",
+          "label": "If block count reaches8: reset count and send Flow Control"
+        },
+        {
+          "id": "g",
+          "kind": "process",
+          "label": "Complete: receiving=false; last=now; complete=false"
+        },
+        {
+          "id": "h",
+          "kind": "decision",
+          "label": "Request matches?"
+        },
+        {
+          "id": "i",
+          "kind": "call",
+          "label": "Validate data layout/value"
+        },
+        {
+          "id": "j",
+          "kind": "decision",
+          "label": "Invalid validation result?"
+        },
+        {
+          "id": "k",
+          "kind": "process",
+          "label": "Preserve invalid payload event; pending=false; not complete"
+        },
+        {
+          "id": "l",
+          "kind": "decision",
+          "label": "Negative payload 7F?"
+        },
+        {
+          "id": "m",
+          "kind": "process",
+          "label": "NRC78: pending=true; other NRC: complete=true; emit event"
+        },
+        {
+          "id": "n",
+          "kind": "process",
+          "label": "Positive: pending=false, complete=true; emit POSITIVE"
+        },
+        {
+          "id": "x",
+          "kind": "end",
+          "label": "Return to active request collector"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": "Yes"
+        },
+        {
+          "source": "b",
+          "target": "x",
+          "label": "No"
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": "Yes"
+        },
+        {
+          "source": "c",
+          "target": "x",
+          "label": "No: emit error"
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": ""
+        },
+        {
+          "source": "e",
+          "target": "g",
+          "label": "Yes"
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": "No"
+        },
+        {
+          "source": "f",
+          "target": "x",
+          "label": ""
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": ""
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": "Yes"
+        },
+        {
+          "source": "h",
+          "target": "x",
+          "label": "No: UNMATCHED_PAYLOAD"
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": ""
+        },
+        {
+          "source": "j",
+          "target": "k",
+          "label": "Yes"
+        },
+        {
+          "source": "j",
+          "target": "l",
+          "label": "No"
+        },
+        {
+          "source": "k",
+          "target": "x",
+          "label": ""
+        },
+        {
+          "source": "l",
+          "target": "m",
+          "label": "Yes"
+        },
+        {
+          "source": "l",
+          "target": "n",
+          "label": "No"
+        },
+        {
+          "source": "m",
+          "target": "x",
+          "label": ""
+        },
+        {
+          "source": "n",
+          "target": "x",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 18,
+      "title": "Data validation: reviewed layouts and VIN",
+      "refs": [
+        "J1979Validation.h: validateData, reviewedPidLength, hasReviewedLayout"
+      ],
+      "notes": [
+        "This is a partial OCT2011 layout checker, not a complete J1979-DA catalogue, semantic decoder or certification proof.",
+        "Reviewed data byte counts: PID01=4; 02/0C/10/1F/21/23/42=2; 04/05/0B/0D/0F/11/1C/2F/33/49=1; 88=13. Continuation-map PIDs00..E0 in steps20 use4.",
+        "Offsets exclude response service/PID and, for Mode02, freeze-frame identifier. Support PID E0 final bit is reserved and must be0.",
+        "Mode09 PID02 VIN: total20 bytes, record count1, exactly17 characters. Allowed digits and uppercase A-Z except I/O/Q.",
+        "Unknown reviewed-layout coverage returns Unverified, not WrongLength. Readiness reserved-bit checks are a separate decoder warning."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "Fully assembled matched payload"
+        },
+        {
+          "id": "b",
+          "kind": "decision",
+          "label": "Null or empty?"
+        },
+        {
+          "id": "c",
+          "kind": "decision",
+          "label": "Service7F or44?"
+        },
+        {
+          "id": "d",
+          "kind": "process",
+          "label": "Require length3 for negative; length1 for clear acknowledgement"
+        },
+        {
+          "id": "e",
+          "kind": "decision",
+          "label": "Service41/42/46/49 with reviewed identifier?"
+        },
+        {
+          "id": "f",
+          "kind": "end",
+          "label": "Return Unverified"
+        },
+        {
+          "id": "g",
+          "kind": "decision",
+          "label": "Support-map identifier?"
+        },
+        {
+          "id": "h",
+          "kind": "process",
+          "label": "Require offset+4; reject E0 reserved continuation bit"
+        },
+        {
+          "id": "i",
+          "kind": "decision",
+          "label": "Service41 or42?"
+        },
+        {
+          "id": "j",
+          "kind": "process",
+          "label": "Require offset + reviewed PID data length"
+        },
+        {
+          "id": "k",
+          "kind": "decision",
+          "label": "49 02 VIN?"
+        },
+        {
+          "id": "l",
+          "kind": "process",
+          "label": "Require20 bytes, count1, valid17-character VIN"
+        },
+        {
+          "id": "m",
+          "kind": "end",
+          "label": "Return LayoutChecked or explicit WrongLength / InvalidValue"
+        },
+        {
+          "id": "x",
+          "kind": "fault",
+          "label": "WrongLength"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "x",
+          "label": "Yes"
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": "No"
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": "Yes"
+        },
+        {
+          "source": "c",
+          "target": "e",
+          "label": "No"
+        },
+        {
+          "source": "d",
+          "target": "m",
+          "label": ""
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": "No"
+        },
+        {
+          "source": "e",
+          "target": "g",
+          "label": "Yes"
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": "Yes"
+        },
+        {
+          "source": "g",
+          "target": "i",
+          "label": "No"
+        },
+        {
+          "source": "h",
+          "target": "m",
+          "label": ""
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": "Yes"
+        },
+        {
+          "source": "i",
+          "target": "k",
+          "label": "No"
+        },
+        {
+          "source": "j",
+          "target": "m",
+          "label": ""
+        },
+        {
+          "source": "k",
+          "target": "l",
+          "label": "Yes"
+        },
+        {
+          "source": "k",
+          "target": "f",
+          "label": "No"
+        },
+        {
+          "source": "l",
+          "target": "m",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 19,
+      "title": "Response windows, pending and transaction end",
+      "refs": [
+        "DiagnosticCore.h: tick, endRequest, allExpectedComplete",
+        "TeensyOBDSDLogger.ino: transactionEnded"
+      ],
+      "notes": [
+        "The main loop invokes tick only when captured records in BOTH queues are drained, so queued responses are processed before timeout decisions.",
+        "For each used ECU: receiving with no CF for >=1000 ms emits ISOTP_TIMEOUT and clears receiving. pending remains a separate waiting condition.",
+        "Priority: all expected complete with no wait -> normal end; otherwise >=10000 ms since start -> hard deadline; otherwise quiet initial window and no waiting -> timeout.",
+        "Initial quiet window defaults70 ms and is measured from lastResponse, not always request start. Config accepts10..10000. No fixed sleep is inserted after every response.",
+        "Timeout emits NO_RESPONSE_TIMEOUT only when no payload matched at all, and EXPECTED_RESPONSE_MISSING for each expected ECU not validly complete. REQUEST_END always follows. Invalid matching data sets matched=true but not complete."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "tick(now), active request only"
+        },
+        {
+          "id": "b",
+          "kind": "process",
+          "label": "Expire receiving states with >=1000 ms inactivity"
+        },
+        {
+          "id": "c",
+          "kind": "process",
+          "label": "waiting = any receiving or pending state"
+        },
+        {
+          "id": "d",
+          "kind": "decision",
+          "label": "Every expected ECU complete and not waiting?"
+        },
+        {
+          "id": "e",
+          "kind": "process",
+          "label": "endRequest(false)"
+        },
+        {
+          "id": "f",
+          "kind": "decision",
+          "label": "Elapsed from start >=10000 ms?"
+        },
+        {
+          "id": "g",
+          "kind": "process",
+          "label": "Emit RESPONSE_DEADLINE for still pending/receiving ECUs"
+        },
+        {
+          "id": "h",
+          "kind": "decision",
+          "label": "Quiet >=responseWindow and not waiting?"
+        },
+        {
+          "id": "i",
+          "kind": "process",
+          "label": "endRequest(true): missing/no-response events"
+        },
+        {
+          "id": "j",
+          "kind": "process",
+          "label": "active=false; emit REQUEST_END"
+        },
+        {
+          "id": "k",
+          "kind": "call",
+          "label": "Sink marks transactionEnded; main checks pending hardware TX"
+        },
+        {
+          "id": "l",
+          "kind": "end",
+          "label": "Otherwise remain active; next loop"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": ""
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": ""
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": "Yes"
+        },
+        {
+          "source": "d",
+          "target": "f",
+          "label": "No"
+        },
+        {
+          "source": "e",
+          "target": "j",
+          "label": ""
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": "Yes"
+        },
+        {
+          "source": "f",
+          "target": "h",
+          "label": "No"
+        },
+        {
+          "source": "g",
+          "target": "i",
+          "label": ""
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": "Yes"
+        },
+        {
+          "source": "h",
+          "target": "l",
+          "label": "No"
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": ""
+        },
+        {
+          "source": "j",
+          "target": "k",
+          "label": ""
+        },
+        {
+          "source": "k",
+          "target": "l",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 20,
+      "title": "Diagnostic events, traces and connection probes",
+      "refs": [
+        "TeensyOBDSDLogger.ino: HardwareSink.event, traceExchangeRequest, nrcName"
+      ],
+      "notes": [
+        "Any event with payload bytes refreshes lastContact, clears missedProbes/probeNeeded and refreshes OLED reply activity, including invalid payload events.",
+        "On NO_RESPONSE_TIMEOUT, increment missedProbes only for a dedicated connectionProbe. If no contact for >=5 s, set probeNeeded. REQUEST_END clears connectionProbe.",
+        "Payload events produce request context, assembled TX and assembled RX traces. Invalid data is labelled. Matching negative payloads print NRC names; unknown NRC keeps raw value.",
+        "During discovery, positive/negative/pending events observe ECU IDs; only positive map responses store validated bitmaps. Inventory overflow is reported.",
+        "Only POSITIVE invokes active readiness tracing. REQUEST_END/CANCELLED sets transactionEnded without resetting CAN. responseSeen is set for positive/negative/pending payload events but has no scheduling decision of its own."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "Sink receives diagnostic event"
+        },
+        {
+          "id": "b",
+          "kind": "decision",
+          "label": "Payload bytes present?"
+        },
+        {
+          "id": "c",
+          "kind": "process",
+          "label": "Refresh contact/activity and clear probe misses"
+        },
+        {
+          "id": "d",
+          "kind": "process",
+          "label": "Timeout/end events update probe state"
+        },
+        {
+          "id": "e",
+          "kind": "call",
+          "label": "If Mode04 feedback active: observe or finalize clear result"
+        },
+        {
+          "id": "f",
+          "kind": "decision",
+          "label": "Payload event?"
+        },
+        {
+          "id": "g",
+          "kind": "process",
+          "label": "Trace request context + complete RX payload; flag invalid layout"
+        },
+        {
+          "id": "h",
+          "kind": "process",
+          "label": "No payload: trace timeout/end context and route event/status"
+        },
+        {
+          "id": "i",
+          "kind": "process",
+          "label": "During discovery observe eligible ID; on positive store valid map"
+        },
+        {
+          "id": "j",
+          "kind": "process",
+          "label": "If negative: print NRC; if positive: trace readiness when applicable"
+        },
+        {
+          "id": "k",
+          "kind": "process",
+          "label": "End/cancel: mark transactionEnded"
+        },
+        {
+          "id": "l",
+          "kind": "end",
+          "label": "Return; main loop chooses probe or next job"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": "Yes"
+        },
+        {
+          "source": "b",
+          "target": "d",
+          "label": "No"
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": ""
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": ""
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": ""
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": "Yes"
+        },
+        {
+          "source": "f",
+          "target": "h",
+          "label": "No"
+        },
+        {
+          "source": "g",
+          "target": "i",
+          "label": ""
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": ""
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": ""
+        },
+        {
+          "source": "j",
+          "target": "k",
+          "label": ""
+        },
+        {
+          "source": "k",
+          "target": "l",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 21,
+      "title": "Mode04: debounce, queue and confirmation",
+      "refs": [
+        "RunControl.h: Mode4Button",
+        "Mode4Feedback.h",
+        "TeensyOBDSDLogger.ino: pollStop, Mode04 branch"
+      ],
+      "notes": [
+        "GPIO40 is active-low. Both edges debounce for30 ms. A button held at boot must first be released to arm. A continuous armed press of2000 ms triggers once per press.",
+        "Only valid OBD mode polls this button. Queue only while not finished/closing/stopping, not already queued, and feedback phase is Idle. CAN mode never requests Mode04.",
+        "Queued clear waits through startup/discovery and active transaction; connection probe has priority. No JSON Mode04 request is accepted.",
+        "Expected confirmation targets: physical RX or all discovered ECU IDs. Unknown/empty/overflow inventory cannot yield success. Diagnostic collection still uses its normal window.",
+        "All expected ECU targets must return positive one-byte44; negative, malformed, cancelled, or missing replies yield failure. RESPONSE_PENDING alone is not a failure. Success holds3 s; failure900 ms, then returns Idle."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "pollStop in configured OBD mode"
+        },
+        {
+          "id": "b",
+          "kind": "process",
+          "label": "Debounce pin; release arms; track held duration"
+        },
+        {
+          "id": "c",
+          "kind": "decision",
+          "label": "Armed held >=2000 ms and not fired?"
+        },
+        {
+          "id": "d",
+          "kind": "decision",
+          "label": "Queue/recording/feedback gates permit?"
+        },
+        {
+          "id": "e",
+          "kind": "process",
+          "label": "Set mode4Requested; feedback Waiting; log MODE04_QUEUED"
+        },
+        {
+          "id": "f",
+          "kind": "process",
+          "label": "Otherwise log ignored; no transmission"
+        },
+        {
+          "id": "g",
+          "kind": "call",
+          "label": "At next permitted slot after probes: construct target inventory"
+        },
+        {
+          "id": "h",
+          "kind": "process",
+          "label": "Begin feedback; submit04; failure stops run"
+        },
+        {
+          "id": "i",
+          "kind": "process",
+          "label": "Observe responses and per-ECU feedback"
+        },
+        {
+          "id": "j",
+          "kind": "decision",
+          "label": "At request end: all targets replied44 and no failure?"
+        },
+        {
+          "id": "k",
+          "kind": "process",
+          "label": "MODE04_CONFIRMED; Success for3000 ms"
+        },
+        {
+          "id": "l",
+          "kind": "process",
+          "label": "MODE04_NOT_CONFIRMED; Failure for900 ms"
+        },
+        {
+          "id": "m",
+          "kind": "end",
+          "label": "Return to loop; expired feedback becomes Idle; release arms next press"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": ""
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": "Yes"
+        },
+        {
+          "source": "c",
+          "target": "m",
+          "label": "No event"
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": "Yes"
+        },
+        {
+          "source": "d",
+          "target": "f",
+          "label": "No"
+        },
+        {
+          "source": "e",
+          "target": "g",
+          "label": "When eligible"
+        },
+        {
+          "source": "f",
+          "target": "m",
+          "label": ""
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": ""
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": "Submitted"
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": ""
+        },
+        {
+          "source": "j",
+          "target": "k",
+          "label": "Yes"
+        },
+        {
+          "source": "j",
+          "target": "l",
+          "label": "No"
+        },
+        {
+          "source": "k",
+          "target": "m",
+          "label": ""
+        },
+        {
+          "source": "l",
+          "target": "m",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 22,
+      "title": "Text routing, console and SD batching",
+      "refs": [
+        "TeensyOBDSDLogger.ino: obdWrite, recordAt, pumpLog, writeFileBatch"
+      ],
+      "notes": [
+        "Before PSRAM migration:64 emergency text slots. Normal text queue:4096 lines of320 bytes. obdWrite uses bounded snprintf; queue-full increments logDrops and sets loggingFault.",
+        "recordAt sends normal scheduler/debug notes to USB only. During closing or for ERROR/FAILED/OVERFLOW/OVERRUN/BUS_OFF/MODE04_/PID_FILTER kinds it queues the sole SD log.",
+        "Raw TX/RX, assembled exchange traces, readiness output and obdStatus use the log queue directly; they are not all subject to recordAt filtering.",
+        "Console queue:32768 bytes, best effort. Disconnected Serial clears it; pump sends only available contiguous bytes. Console drops do not mean SD drops.",
+        "Text batches use8192 bytes, writing after >=4096 bytes or before a line would overflow the batch. Record lines are mirrored to console as pumped. SD short writes set failure and count unwritten bytes; transfer staging before/after writes."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "Produce event, frame or decoded text"
+        },
+        {
+          "id": "b",
+          "kind": "decision",
+          "label": "recordAt or direct log output?"
+        },
+        {
+          "id": "c",
+          "kind": "decision",
+          "label": "Closing or persistent event kind?"
+        },
+        {
+          "id": "d",
+          "kind": "process",
+          "label": "Console-only note; best-effort queue"
+        },
+        {
+          "id": "e",
+          "kind": "process",
+          "label": "obdWrite: queue bounded text or flag log overflow"
+        },
+        {
+          "id": "f",
+          "kind": "process",
+          "label": "pumpLog up to128 lines per loop"
+        },
+        {
+          "id": "g",
+          "kind": "decision",
+          "label": "Next line would exceed8192 batch bytes?"
+        },
+        {
+          "id": "h",
+          "kind": "call",
+          "label": "Rotate if needed, then write current batch"
+        },
+        {
+          "id": "i",
+          "kind": "process",
+          "label": "Append line; mirror to USB; dequeue"
+        },
+        {
+          "id": "j",
+          "kind": "decision",
+          "label": "Batch >=4096 bytes?"
+        },
+        {
+          "id": "k",
+          "kind": "call",
+          "label": "Write batch; update usage/duration/error counters"
+        },
+        {
+          "id": "l",
+          "kind": "end",
+          "label": "Return; periodic/final flush writes remaining partial batch"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": "recordAt"
+        },
+        {
+          "source": "b",
+          "target": "e",
+          "label": "Direct"
+        },
+        {
+          "source": "c",
+          "target": "e",
+          "label": "Yes"
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": "No"
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": ""
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": ""
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": "Yes"
+        },
+        {
+          "source": "g",
+          "target": "i",
+          "label": "No"
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": ""
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": ""
+        },
+        {
+          "source": "j",
+          "target": "k",
+          "label": "Yes"
+        },
+        {
+          "source": "j",
+          "target": "l",
+          "label": "No"
+        },
+        {
+          "source": "k",
+          "target": "l",
+          "label": ""
+        },
+        {
+          "source": "d",
+          "target": "l",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 23,
+      "title": "File selection, header and 250 MB rotation",
+      "refs": [
+        "StoragePaths.h: formatLogPath",
+        "LogRotation.h",
+        "CanRecording.h: formatCanAscHeader",
+        "TeensyOBDSDLogger.ino: openLogSegment, prepareLogBatch, writeCanFooter"
+      ],
+      "notes": [
+        "File index scans1..999999 and skips existing paths. Names: /LOGS/01_OBD_<number>.TXT or /LOGS/01_CAN_<number>.ASC. At least2 index digits; independent mode paths preserve existing files.",
+        "OBD header: SkiDrive title, actual firmware, ID, path, config fingerprint, bitrate/address/request count, power-on time base. CAN header has comment metadata and Begin Triggerblock.",
+        "Limit is250000000 decimal bytes including header. CAN reserves End Triggerblock bytes before batch admission. Rotate BEFORE current+pending+footer would exceed cap; equality is allowed.",
+        "Rotation writes CAN footer once, checks flush errors, closes, opens next unused segment and repeats header. Capture stays enabled; CAN elapsed origin is not reset.",
+        "Footer/flush/open/header failure marks SD/logging failure. Runtime uses no synchronized RTC/calendar date and does not silently delete old recordings."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "Write batch with pending bytes"
+        },
+        {
+          "id": "b",
+          "kind": "decision",
+          "label": "SD good, pending>0 and cap would be crossed?"
+        },
+        {
+          "id": "c",
+          "kind": "process",
+          "label": "No rotation: keep current segment"
+        },
+        {
+          "id": "d",
+          "kind": "process",
+          "label": "Write CAN footer once if needed"
+        },
+        {
+          "id": "e",
+          "kind": "decision",
+          "label": "Footer and flush successful?"
+        },
+        {
+          "id": "f",
+          "kind": "process",
+          "label": "Close current; scan next unused indexed path"
+        },
+        {
+          "id": "g",
+          "kind": "decision",
+          "label": "Open valid path and write header succeed?"
+        },
+        {
+          "id": "h",
+          "kind": "process",
+          "label": "Announce segment; retain receive queues and time origin"
+        },
+        {
+          "id": "i",
+          "kind": "process",
+          "label": "Write batch; update SD usage"
+        },
+        {
+          "id": "j",
+          "kind": "fault",
+          "label": "Count failure; SD bad; loggingFault=true"
+        },
+        {
+          "id": "k",
+          "kind": "end",
+          "label": "Return to common loop/stop handling"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": "No"
+        },
+        {
+          "source": "b",
+          "target": "d",
+          "label": "Yes"
+        },
+        {
+          "source": "c",
+          "target": "i",
+          "label": ""
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": ""
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": "Yes"
+        },
+        {
+          "source": "e",
+          "target": "j",
+          "label": "No"
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": ""
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": "Yes"
+        },
+        {
+          "source": "g",
+          "target": "j",
+          "label": "No"
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": ""
+        },
+        {
+          "source": "i",
+          "target": "k",
+          "label": ""
+        },
+        {
+          "source": "j",
+          "target": "k",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 24,
+      "title": "Stop boundary, draining and SD handover",
+      "refs": [
+        "TeensyOBDSDLogger.ino: stopRun, loop closing tail, exposeSD"
+      ],
+      "notes": [
+        "stopRun is idempotent when closing/finished. Set reason; finalize OBD skipped-period counts, bounded by a configured duration when applicable.",
+        "Cancel queued clear and diagnostic transaction; running/ready=false. Atomically disable capture and snapshot FIFO pending. Disable FIFO IRQ and switch CAN to listen-only.",
+        "Persist boundary and stop reason. CAN sets closing before notes so they appear in ASC; OBD stop reason also uses direct obdStatus. Unread FIFO is outside the drained software queue.",
+        "Continue processing BOTH receive queues. When empty, emit summary + CAPTURE_DRAINED. This marker precedes final text write/flush; alone it is not proof of successful final media persistence.",
+        "After text queue empties: write partial batch, footer, flush, check errors and close. completedClean requires valid config, good SD, no logging fault and no final write error. Even failed runs expose mounted SD after close; update state stays failed."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "stopRun(reason)"
+        },
+        {
+          "id": "s",
+          "kind": "start",
+          "label": "Startup failed: setup already set closing"
+        },
+        {
+          "id": "b",
+          "kind": "decision",
+          "label": "Already closing/finished?"
+        },
+        {
+          "id": "c",
+          "kind": "end",
+          "label": "No-op for repeated stopRun"
+        },
+        {
+          "id": "d",
+          "kind": "process",
+          "label": "Finalize schedule; cancel clear/exchange; disable run/TX readiness"
+        },
+        {
+          "id": "e",
+          "kind": "process",
+          "label": "Disable capture atomically; snapshot FIFO; disable IRQ; listen-only"
+        },
+        {
+          "id": "f",
+          "kind": "process",
+          "label": "Set closing and persist stop/boundary notes"
+        },
+        {
+          "id": "g",
+          "kind": "call",
+          "label": "Main loop drains staging + PSRAM, then final health summary"
+        },
+        {
+          "id": "h",
+          "kind": "decision",
+          "label": "Final summary done and text queue empty?"
+        },
+        {
+          "id": "i",
+          "kind": "process",
+          "label": "Write partial batch/footer; flush/check; close file"
+        },
+        {
+          "id": "j",
+          "kind": "process",
+          "label": "Set completedClean; sdGood=false; finished=true"
+        },
+        {
+          "id": "k",
+          "kind": "process",
+          "label": "If mounted and not exposed: MTP.addFilesystem and reset"
+        },
+        {
+          "id": "l",
+          "kind": "end",
+          "label": "LOG_CLOSED or RUN_FAILED; USB/MTP remains; no auto-restart"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": "Normal stopRun"
+        },
+        {
+          "source": "s",
+          "target": "g",
+          "label": "No capture started"
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": "Yes"
+        },
+        {
+          "source": "b",
+          "target": "d",
+          "label": "No"
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": ""
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": ""
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": ""
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": ""
+        },
+        {
+          "source": "h",
+          "target": "g",
+          "label": "No: next loop"
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": "Yes"
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": ""
+        },
+        {
+          "source": "j",
+          "target": "k",
+          "label": ""
+        },
+        {
+          "source": "k",
+          "target": "l",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 25,
+      "title": "USB serial commands and update boundary",
+      "refs": [
+        "TeensyOBDSDLogger.ino: pollStop, updateStatus",
+        "usb_identity.c",
+        "docs/firmware-update-usb.md"
+      ],
+      "notes": [
+        "Read at most32 input bytes per main loop. Command buffer accepts31 characters. CR or LF terminates; an overlong command is discarded until terminator. Unknown/blank commands do nothing.",
+        "stop/close set stopRequested. prepare_update sets it and invokes immediate normal stopRun if not already closing/finished, then replies with current state.",
+        "Reply begins @UPDATE and includes protocol, product/display name, legacy device_type, stable ID, firmware, hardware unassigned, operating_mode, state, SD/OLED flags, faults/drop counters, ESR, reason and flash_enabled=false.",
+        "State: not_prepared until closing; preparing while closing; finished -> ready only if completedClean, otherwise failed. A mounted SD is not a live card-presence probe; OLED ready is communication, not visual inspection.",
+        "The app verifies a firmware package externally. Teensy core134-baud bootloader entry and external CLI flashing are outside this command handler. No in-application flash writer, signed-image rejection or dual-bank rollback is implemented here."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "pollStop serial input"
+        },
+        {
+          "id": "b",
+          "kind": "process",
+          "label": "Read bounded bytes; assemble case-sensitive line"
+        },
+        {
+          "id": "c",
+          "kind": "decision",
+          "label": "Line terminated without overflow?"
+        },
+        {
+          "id": "d",
+          "kind": "decision",
+          "label": "Command?"
+        },
+        {
+          "id": "e",
+          "kind": "process",
+          "label": "stop / close: set stopRequested"
+        },
+        {
+          "id": "f",
+          "kind": "process",
+          "label": "device_info / update_status: return @UPDATE JSON"
+        },
+        {
+          "id": "g",
+          "kind": "process",
+          "label": "prepare_update: set stop; stopRun if eligible; return state"
+        },
+        {
+          "id": "h",
+          "kind": "process",
+          "label": "Unknown or overlong line: ignore; reset parser state"
+        },
+        {
+          "id": "i",
+          "kind": "call",
+          "label": "External updater waits for safe closure / explicit recovery process"
+        },
+        {
+          "id": "j",
+          "kind": "process",
+          "label": "Core bootloader entry; external loader installs image"
+        },
+        {
+          "id": "k",
+          "kind": "end",
+          "label": "After reboot app rediscovers same permanent ID and expected version"
+        },
+        {
+          "id": "q",
+          "kind": "end",
+          "label": "Return to serial/main-loop service"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": ""
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": "Yes"
+        },
+        {
+          "source": "c",
+          "target": "h",
+          "label": "Overflow/unknown"
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": "Stop"
+        },
+        {
+          "source": "d",
+          "target": "f",
+          "label": "Query"
+        },
+        {
+          "source": "d",
+          "target": "g",
+          "label": "Prepare"
+        },
+        {
+          "source": "d",
+          "target": "h",
+          "label": "Other"
+        },
+        {
+          "source": "e",
+          "target": "i",
+          "label": "If update follows close"
+        },
+        {
+          "source": "g",
+          "target": "i",
+          "label": "After state/closure checks"
+        },
+        {
+          "source": "f",
+          "target": "q",
+          "label": "Query only"
+        },
+        {
+          "source": "h",
+          "target": "q",
+          "label": "No action"
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": "External boundary"
+        },
+        {
+          "source": "j",
+          "target": "k",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 26,
+      "title": "OLED status selection and precedence",
+      "refs": [
+        "TeensyOBDSDLogger.ino: updateDisplay",
+        "Mode4Feedback.h: update",
+        "CanRecording.h: canTrafficRecent"
+      ],
+      "notes": [
+        "Mode04 feedback timers update even if OLED is unavailable. OLED failure never stops logging by itself.",
+        "Recent CAN activity is <=3000 ms since last callback; recent OBD payload activity is <5000 ms. OBD lost also means two missed probes or ECU-disconnected stop reason.",
+        "flowing = recent reply AND not closing/finished/fault. Centre badge is ERROR for fault, otherwise LIVE if flowing, else WAIT.",
+        "Status precedence, in code order: running/default; OBD button/feedback/link; CAN starting/no-traffic; closing; finished; fault; configurationRejected last.",
+        "No SD -> NO SD CARD on fault; other fault -> LOG ERROR; invalid JSON -> CONFIG ERROR. Normal mounted file access uses SD ACCESS, unless link-lost/fault status overrides it."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "Each updateDisplay call"
+        },
+        {
+          "id": "b",
+          "kind": "process",
+          "label": "Advance Mode04 feedback timers"
+        },
+        {
+          "id": "c",
+          "kind": "decision",
+          "label": "oledReady?"
+        },
+        {
+          "id": "d",
+          "kind": "end",
+          "label": "Return without affecting logging"
+        },
+        {
+          "id": "e",
+          "kind": "process",
+          "label": "If previous frame sending: send one16-byte chunk then return"
+        },
+        {
+          "id": "f",
+          "kind": "decision",
+          "label": "New frame due (first or >=100 ms)?"
+        },
+        {
+          "id": "g",
+          "kind": "process",
+          "label": "Compute recent/lost/fault/flowing flags"
+        },
+        {
+          "id": "h",
+          "kind": "process",
+          "label": "Choose LIVE/WAIT/ERROR badge"
+        },
+        {
+          "id": "i",
+          "kind": "process",
+          "label": "Apply ordered main-status precedence"
+        },
+        {
+          "id": "j",
+          "kind": "call",
+          "label": "Draw startup or steady layout, then send display commands"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": ""
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": "No"
+        },
+        {
+          "source": "c",
+          "target": "e",
+          "label": "Yes: frame pending"
+        },
+        {
+          "source": "c",
+          "target": "f",
+          "label": "Yes: no pending frame"
+        },
+        {
+          "source": "f",
+          "target": "d",
+          "label": "No"
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": "Yes"
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": ""
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": ""
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 27,
+      "title": "OLED frame, equal gaps and I2C isolation",
+      "refs": [
+        "TeensyOBDSDLogger.ino: updateDisplay, drawDisplayBadge, finishDisplayTransfer"
+      ],
+      "notes": [
+        "First frame after setup starts a1500 ms non-blocking splash: SkiDrive, then ID:<numeric ID>. Fault overrides splash on next refresh; no extra acquisition delay is inserted.",
+        "Header: mode x0 width25; storage x85 width43; activity width34 at x38 for ERROR (13-pixel gaps), width28 at x41 for LIVE/WAIT (16-pixel gaps). Existing6x8 cells remain.",
+        "Main text at y12: scale2 if <=10 chars, else1. Bottom track y30, pulse y29..31. Pulse advances4 pixels per redraw only while flowing; holds last position on lost/stop.",
+        "SD percentage is estimated used capacity: startup scan plus successful logger writes, clamped100. Missing card shows SD:NO; unknown total SD:--. Host file edits need restart to refresh snapshot.",
+        "Keep framebuffer unchanged until all512 bytes transfer. Set horizontal-address window, then transfer16 bytes per subsequent loop call. I2C failure disables display until restart and reports OLED_IO_FAILED, while logging continues."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "Ready to draw new frame"
+        },
+        {
+          "id": "b",
+          "kind": "process",
+          "label": "Clear buffer; set font/color; estimate SD used label"
+        },
+        {
+          "id": "c",
+          "kind": "decision",
+          "label": "Within1500 ms of first draw and no fault?"
+        },
+        {
+          "id": "d",
+          "kind": "process",
+          "label": "Draw SkiDrive and numeric ID"
+        },
+        {
+          "id": "e",
+          "kind": "process",
+          "label": "Draw OBD/CAN, activity and SD with equal badge gaps"
+        },
+        {
+          "id": "f",
+          "kind": "process",
+          "label": "Draw main status and dotted track; move/freeze pulse"
+        },
+        {
+          "id": "g",
+          "kind": "process",
+          "label": "Set SSD1306 full-window addressing"
+        },
+        {
+          "id": "h",
+          "kind": "decision",
+          "label": "I2C command transaction succeeds?"
+        },
+        {
+          "id": "i",
+          "kind": "process",
+          "label": "Set sent=0; on following calls transmit16-byte chunks"
+        },
+        {
+          "id": "j",
+          "kind": "decision",
+          "label": "Chunk succeeds?"
+        },
+        {
+          "id": "k",
+          "kind": "process",
+          "label": "Advance sent until512; allow next redraw"
+        },
+        {
+          "id": "x",
+          "kind": "fault",
+          "label": "Disable OLED; console/error status only; recording continues"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": ""
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": "Yes"
+        },
+        {
+          "source": "c",
+          "target": "e",
+          "label": "No"
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": ""
+        },
+        {
+          "source": "d",
+          "target": "g",
+          "label": ""
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": ""
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": ""
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": "Yes"
+        },
+        {
+          "source": "h",
+          "target": "x",
+          "label": "No"
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": ""
+        },
+        {
+          "source": "j",
+          "target": "k",
+          "label": "Yes"
+        },
+        {
+          "source": "j",
+          "target": "x",
+          "label": "No"
+        },
+        {
+          "source": "k",
+          "target": "i",
+          "label": "More bytes"
+        },
+        {
+          "source": "k",
+          "target": "a",
+          "label": "Frame done and refresh due"
+        }
+      ]
+    },
+    {
+      "number": 28,
+      "title": "Active readiness decoding and raw trace helpers",
+      "refs": [
+        "Readiness.h",
+        "TraceFormat.h",
+        "TeensyOBDSDLogger.ino: HardwareSink.event"
+      ],
+      "notes": [
+        "Readiness tracing is called only for POSITIVE events and accepts exactly six bytes:41 01 A B C D. PID41 has different semantics and is not passed through this decoder.",
+        "A: MIL command bit7 and confirmed emissions DTC count bits0..6. B bit3 selects compression vs spark monitor names. B bits0..2 are common support; bits4..6 are incomplete flags.",
+        "C contains monitor support, D contains incomplete flags. Apply ignition-specific reserved masks (compression0x14; spark0x10); unsupported monitors print N/A. Reserved bits warn without discarding raw data.",
+        "Readiness is completion since DTC clearing, not a pass result. No automatic ignition type is guessed from vehicle name.",
+        "traceCan emits raw ID/type/DLC/time, and RTR without bytes. tracePayload emits a single full payload line in bounded fragments, supporting up to4095 bytes. traceRequest labels mode/PID/MID/freeze frame."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "Positive payload event"
+        },
+        {
+          "id": "b",
+          "kind": "decision",
+          "label": "Exactly41 01 plus4 bytes?"
+        },
+        {
+          "id": "c",
+          "kind": "end",
+          "label": "No readiness output; preserve existing raw trace"
+        },
+        {
+          "id": "d",
+          "kind": "process",
+          "label": "Extract A/B/C/D; MIL and DTC count"
+        },
+        {
+          "id": "e",
+          "kind": "process",
+          "label": "Common support + completion flags"
+        },
+        {
+          "id": "f",
+          "kind": "decision",
+          "label": "Compression ignition bit set?"
+        },
+        {
+          "id": "g",
+          "kind": "process",
+          "label": "Use diesel/compression monitor names and reserved mask"
+        },
+        {
+          "id": "h",
+          "kind": "process",
+          "label": "Use spark monitor names and reserved mask"
+        },
+        {
+          "id": "i",
+          "kind": "process",
+          "label": "For valid monitor bits: print N/A, COMPLETE or INCOMPLETE"
+        },
+        {
+          "id": "j",
+          "kind": "decision",
+          "label": "Reserved bits set?"
+        },
+        {
+          "id": "k",
+          "kind": "process",
+          "label": "Print READINESS_WARNING; retain raw response"
+        },
+        {
+          "id": "l",
+          "kind": "end",
+          "label": "Print meaning note; return to event handler"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": "No"
+        },
+        {
+          "source": "b",
+          "target": "d",
+          "label": "Yes"
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": ""
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": ""
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": "Yes"
+        },
+        {
+          "source": "f",
+          "target": "h",
+          "label": "No"
+        },
+        {
+          "source": "g",
+          "target": "i",
+          "label": ""
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": ""
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": ""
+        },
+        {
+          "source": "j",
+          "target": "k",
+          "label": "Yes"
+        },
+        {
+          "source": "j",
+          "target": "l",
+          "label": "No"
+        },
+        {
+          "source": "k",
+          "target": "l",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 29,
+      "title": "MTP exposure, enumeration and hidden objects",
+      "refs": [
+        "TeensyOBDSDLogger.ino: exposeSD",
+        "src/mtp/VisibleObjects.h",
+        "src/mtp/OBD_MTP.cpp: begin, loop"
+      ],
+      "notes": [
+        "MTP.begin starts a50,000 us IntervalTimer fallback while setup has not yet called MTP.loop. It serves safe identity/session/storage metadata and returns DeviceBusy for other timer-time commands.",
+        "First main MTP.loop cancels that fallback. While recording, SD is not registered as an exposed filesystem; protocol metadata can still be served.",
+        "Only final close exposes mounted SD with addFilesystem and reset, once. SD access includes normal host file mutation commands; this is not a read-only vault.",
+        "VisibleObjects filters GetNumObjects and GetObjectHandles, walking ancestors up to256 levels. Hide System Volume Information, mtpindex.dat and descendants; reject empty/invalid/self-parent handles.",
+        "This is enumeration filtering, not an authentication/security barrier. USB/MTP friendly name SkiDrive_<ID>; model SkiDrive OBD/CAN Logger; manufacturer Skillicon Technologies."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "MTP.begin during setup"
+        },
+        {
+          "id": "b",
+          "kind": "process",
+          "label": "Start20 Hz metadata-only fallback timer"
+        },
+        {
+          "id": "c",
+          "kind": "process",
+          "label": "First main MTP.loop stops fallback timer"
+        },
+        {
+          "id": "d",
+          "kind": "decision",
+          "label": "Recording file safely closed and SD mounted?"
+        },
+        {
+          "id": "e",
+          "kind": "process",
+          "label": "Do not expose SD filesystem while recording"
+        },
+        {
+          "id": "f",
+          "kind": "process",
+          "label": "exposeSD once: add SD card + reset host view"
+        },
+        {
+          "id": "g",
+          "kind": "process",
+          "label": "Host requests count/handles: inspect each object/ancestor"
+        },
+        {
+          "id": "h",
+          "kind": "decision",
+          "label": "Valid named ancestry, no hidden system item?"
+        },
+        {
+          "id": "i",
+          "kind": "process",
+          "label": "Include object in count/handle stream"
+        },
+        {
+          "id": "j",
+          "kind": "process",
+          "label": "Omit hidden/invalid object"
+        },
+        {
+          "id": "k",
+          "kind": "call",
+          "label": "Host can use standard file/property operations"
+        },
+        {
+          "id": "l",
+          "kind": "end",
+          "label": "Continue MTP service; no automatic recording restart"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": ""
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": ""
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": "No"
+        },
+        {
+          "source": "d",
+          "target": "f",
+          "label": "Yes"
+        },
+        {
+          "source": "e",
+          "target": "l",
+          "label": ""
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": ""
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": ""
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": "Yes"
+        },
+        {
+          "source": "h",
+          "target": "j",
+          "label": "No"
+        },
+        {
+          "source": "i",
+          "target": "k",
+          "label": ""
+        },
+        {
+          "source": "j",
+          "target": "k",
+          "label": ""
+        },
+        {
+          "source": "k",
+          "target": "l",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 30,
+      "title": "Bundled MTP command dispatcher",
+      "refs": [
+        "src/mtp/OBD_MTP.cpp: MTP_class::loop, processIntervalTimer"
+      ],
+      "notes": [
+        "Receive command container length12..32; preserve transaction ID. Wrong container type yields operation-not-supported. Bad length frees packet without a full application-defined recovery protocol.",
+        "Identity/session:1001 GetDeviceInfo,1002 OpenSession,1003 CloseSession. Storage:1004 IDs,1005 info,1006 count,1007 handles.",
+        "Files:1008 info,1009 download,100B delete,100C upload metadata,100D upload data,100F format,1019 move,101A copy,101B partial download. Reset1010 and unsupported ops return2005.",
+        "Properties:1014 device descriptor,1015 device value,9801 supported object props,9802 prop descriptor,9803 prop value,9804 set prop. Host failure codes propagate; format success requests DeviceReset event.",
+        "Reply reuses transaction ID and encodes response parameters from return_code high bits. Only send if USB MTP status is ready. Restore protocol status and call storage_.loop afterwards."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "MTP.loop polling"
+        },
+        {
+          "id": "b",
+          "kind": "decision",
+          "label": "Bulk packet available?"
+        },
+        {
+          "id": "c",
+          "kind": "decision",
+          "label": "Length12..32 and command container?"
+        },
+        {
+          "id": "d",
+          "kind": "process",
+          "label": "Copy container; free RX; keep transaction ID"
+        },
+        {
+          "id": "e",
+          "kind": "decision",
+          "label": "Operation group?"
+        },
+        {
+          "id": "f",
+          "kind": "process",
+          "label": "Identity/session/storage metadata"
+        },
+        {
+          "id": "g",
+          "kind": "call",
+          "label": "File upload/download/delete/format/move/copy"
+        },
+        {
+          "id": "h",
+          "kind": "process",
+          "label": "Read/write device or object properties"
+        },
+        {
+          "id": "i",
+          "kind": "process",
+          "label": "Unknown/reset: operation not supported"
+        },
+        {
+          "id": "j",
+          "kind": "process",
+          "label": "Build response and optional parameters; send if USB ready"
+        },
+        {
+          "id": "k",
+          "kind": "process",
+          "label": "After successful format: device reset event"
+        },
+        {
+          "id": "l",
+          "kind": "process",
+          "label": "Normalize USB status; storage_.loop"
+        },
+        {
+          "id": "m",
+          "kind": "end",
+          "label": "Return to application main loop"
+        },
+        {
+          "id": "x",
+          "kind": "process",
+          "label": "Malformed packet: free RX / return appropriate unsupported code"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": "Yes"
+        },
+        {
+          "source": "b",
+          "target": "l",
+          "label": "No"
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": "Yes"
+        },
+        {
+          "source": "c",
+          "target": "x",
+          "label": "No"
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": ""
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": "Metadata"
+        },
+        {
+          "source": "e",
+          "target": "g",
+          "label": "File"
+        },
+        {
+          "source": "e",
+          "target": "h",
+          "label": "Property"
+        },
+        {
+          "source": "e",
+          "target": "i",
+          "label": "Other"
+        },
+        {
+          "source": "f",
+          "target": "j",
+          "label": ""
+        },
+        {
+          "source": "g",
+          "target": "j",
+          "label": ""
+        },
+        {
+          "source": "h",
+          "target": "j",
+          "label": ""
+        },
+        {
+          "source": "i",
+          "target": "j",
+          "label": ""
+        },
+        {
+          "source": "j",
+          "target": "k",
+          "label": ""
+        },
+        {
+          "source": "k",
+          "target": "l",
+          "label": ""
+        },
+        {
+          "source": "x",
+          "target": "l",
+          "label": ""
+        },
+        {
+          "source": "l",
+          "target": "m",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 31,
+      "title": "MTP file/data transport and error boundaries",
+      "refs": [
+        "src/mtp/OBD_MTP.cpp: SendObjectInfo, SendObject, GetObject, GetPartialObject",
+        "src/mtp/OBD_MTP.cpp: read/write/string/bulk/event helpers"
+      ],
+      "notes": [
+        "SendObjectInfo reads metadata, resolves store/parent, UTF strings and timestamps, then creates a file/directory handle. SendObject streams host data to storage; the format and SD engine are core dependencies.",
+        "Downloads look up object/store, send metadata/data phase, then read/write bounded buffers. Partial download honors requested offset/count. Deletes and copies propagate storage errors; format can fail/cancel.",
+        "readDataPhaseHeader checks container framing; read/readstring/readDateTimeString handle byte streams, UTF-16/UTF-8 and optional dates. write/writestring/write_finish assemble USB packets and terminate phases.",
+        "Active Teensy4 USB branch uses receive/transmit buffers, endpoint packet sizes and cache/DMA synchronization. Waits/timeouts/USB disconnects can abort transfers. Teensy3 conditional alternatives are present but not active on this hardware.",
+        "Event functions package notifications with event code/transaction parameters. No firmware HEX upload/install command exists in the MTP dispatcher. Putting a HEX on SD does not program flash."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "Host requests file operation"
+        },
+        {
+          "id": "b",
+          "kind": "decision",
+          "label": "Upload or download/mutation?"
+        },
+        {
+          "id": "c",
+          "kind": "process",
+          "label": "Upload metadata: parse store/parent/name/time; create object handle"
+        },
+        {
+          "id": "d",
+          "kind": "process",
+          "label": "Receive data phase in bounded chunks; write storage"
+        },
+        {
+          "id": "e",
+          "kind": "process",
+          "label": "Download/info/partial read: locate object; apply offset/count"
+        },
+        {
+          "id": "f",
+          "kind": "process",
+          "label": "Send data header and file chunks through USB bulk"
+        },
+        {
+          "id": "g",
+          "kind": "decision",
+          "label": "Frame, USB and storage operations succeed?"
+        },
+        {
+          "id": "h",
+          "kind": "process",
+          "label": "Finish data/response phase; update object information"
+        },
+        {
+          "id": "i",
+          "kind": "process",
+          "label": "Return operation/storage/partial-deletion error"
+        },
+        {
+          "id": "j",
+          "kind": "process",
+          "label": "Delete/format/move/copy through storage engine; map result"
+        },
+        {
+          "id": "k",
+          "kind": "end",
+          "label": "Return response; service notifications and storage loop"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": "Upload"
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": ""
+        },
+        {
+          "source": "d",
+          "target": "g",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "e",
+          "label": "Read"
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": ""
+        },
+        {
+          "source": "f",
+          "target": "g",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "j",
+          "label": "Mutation"
+        },
+        {
+          "source": "j",
+          "target": "g",
+          "label": ""
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": "Yes"
+        },
+        {
+          "source": "g",
+          "target": "i",
+          "label": "No"
+        },
+        {
+          "source": "h",
+          "target": "k",
+          "label": ""
+        },
+        {
+          "source": "i",
+          "target": "k",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 32,
+      "title": "Fault gates and health counters",
+      "refs": [
+        "TeensyOBDSDLogger.ino: loop health gates, summary",
+        "TeensyOBDSDLogger.ino: HardwareSink and write paths"
+      ],
+      "notes": [
+        "Immediate run-fault sources include hardware overflow, staging/capture loss, text queue overflow, SD short/flush/footer/open errors, malformed CAN ASC format and bus-off.",
+        "Diagnostic submission failure or any pending hardware TX at transaction end stops the run. A Mode04 negative reply is a clear failure, not by itself a storage fault.",
+        "Config, timer and PSRAM failures prevent startup. OLED communication failure disables OLED only; console drops do not stop SD logging. Negative/invalid/unverified diagnostic replies stay visible without globally treating all as fatal.",
+        "summary reports STATUS, CAPTURE_STATUS, RX_STAGING, SD_STATUS, CAN_TIMING, CAPTURE_TIMING, first overrun details and every configured job schedule. Periodic summary may route mainly to console; closing preserves all summary kinds.",
+        "Zero software drops do not prove no wire loss. GPT2-vs-DWT disagreement is diagnostic, not itself a stop. No watchdog, battery power-fail save, auto-reset recovery or full certification claim is implemented."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "Health check in main loop"
+        },
+        {
+          "id": "b",
+          "kind": "process",
+          "label": "Drain up to8 CAN error snapshots; record real error bits/counters"
+        },
+        {
+          "id": "c",
+          "kind": "decision",
+          "label": "Hardware overrun or bus-off?"
+        },
+        {
+          "id": "d",
+          "kind": "process",
+          "label": "Set loggingFault; preserve first overrun details"
+        },
+        {
+          "id": "e",
+          "kind": "decision",
+          "label": "loggingFault or SD not good?"
+        },
+        {
+          "id": "f",
+          "kind": "call",
+          "label": "stopRun: logging/CAN failure"
+        },
+        {
+          "id": "g",
+          "kind": "process",
+          "label": "Continue mode control; normal/invalid/negative replies are not all fatal"
+        },
+        {
+          "id": "h",
+          "kind": "process",
+          "label": "If due/running or final: summary counters and per-job stats"
+        },
+        {
+          "id": "i",
+          "kind": "end",
+          "label": "Common log/USB/display service"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": ""
+        },
+        {
+          "source": "c",
+          "target": "d",
+          "label": "Yes"
+        },
+        {
+          "source": "c",
+          "target": "e",
+          "label": "No"
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": ""
+        },
+        {
+          "source": "e",
+          "target": "f",
+          "label": "Yes"
+        },
+        {
+          "source": "e",
+          "target": "g",
+          "label": "No"
+        },
+        {
+          "source": "f",
+          "target": "h",
+          "label": ""
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": ""
+        },
+        {
+          "source": "h",
+          "target": "i",
+          "label": ""
+        }
+      ]
+    },
+    {
+      "number": 33,
+      "title": "Present but inactive helper code",
+      "refs": [
+        "LogReport.h: date/report helpers",
+        "RunControl.h: StopButton",
+        "Mode4Feedback.h: yellow, red"
+      ],
+      "notes": [
+        "These helper implementations are in source, but the current main sketch does not call them. Showing them separately avoids inventing live features.",
+        "LogReport date helpers parse/format civil time2000..2099, validate leap days and build calendar headers. Current runtime does not call these helpers or synchronize a calendar clock. Live labels come from ProductIdentity.h.",
+        "reportRequest/reportPositive can label support maps, selected physical-unit values, VIN/ECU ASCII and counted DTC entries. They are not the active general PID-value decoder in dev9; active payload traces remain raw plus the readiness decoder.",
+        "StopButton supports a generic held-stop input but no SD-access push button is wired into the sketch. Mode4Feedback.yellow/red blink-pattern helpers are likewise not called; display phase feedback is active.",
+        "Unused constants/state such as MAX_LIVE_PIDS sizing and responseSeen do not imply a new feature. Compile-time Teensy3 MTP alternatives are inactive; Teensy4 core transport is the active dependency."
+      ],
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "start",
+          "label": "Helper exists in code"
+        },
+        {
+          "id": "b",
+          "kind": "decision",
+          "label": "Called from current runtime path?"
+        },
+        {
+          "id": "c",
+          "kind": "process",
+          "label": "Use active chart for that function"
+        },
+        {
+          "id": "d",
+          "kind": "decision",
+          "label": "Inactive helper family?"
+        },
+        {
+          "id": "e",
+          "kind": "process",
+          "label": "Calendar parse/format and generic header utilities"
+        },
+        {
+          "id": "f",
+          "kind": "process",
+          "label": "Generic request/positive report and selected value/DTC formatting"
+        },
+        {
+          "id": "g",
+          "kind": "process",
+          "label": "Generic stop button and old LED feedback patterns"
+        },
+        {
+          "id": "h",
+          "kind": "end",
+          "label": "Document as present but inactive; no live product claim"
+        }
+      ],
+      "edges": [
+        {
+          "source": "a",
+          "target": "b",
+          "label": ""
+        },
+        {
+          "source": "b",
+          "target": "c",
+          "label": "Yes"
+        },
+        {
+          "source": "b",
+          "target": "d",
+          "label": "No"
+        },
+        {
+          "source": "d",
+          "target": "e",
+          "label": "Date"
+        },
+        {
+          "source": "d",
+          "target": "f",
+          "label": "Report"
+        },
+        {
+          "source": "d",
+          "target": "g",
+          "label": "Control/LED"
+        },
+        {
+          "source": "e",
+          "target": "h",
+          "label": ""
+        },
+        {
+          "source": "f",
+          "target": "h",
+          "label": ""
+        },
+        {
+          "source": "g",
+          "target": "h",
+          "label": ""
+        }
+      ]
+    }
+  ],
+  "source_files": [
+    {
+      "file": "TeensyOBDSDLogger/CanRecording.h",
+      "sha256": "afea9d467718217104f4fb5e51b52633aa34ab1f8dd06832e65719b6aa7d7eea",
+      "lines": 72,
+      "charts": "02,09-10,23",
+      "function_index": [
+        {
+          "name": "formatCanAscHeader",
+          "line": 11
+        },
+        {
+          "name": "canIdleExpired",
+          "line": 27
+        },
+        {
+          "name": "passiveAction",
+          "line": 31
+        },
+        {
+          "name": "sample",
+          "line": 45
+        },
+        {
+          "name": "canTrafficRecent",
+          "line": 47
+        },
+        {
+          "name": "formatCanAsc",
+          "line": 50
+        }
+      ]
+    },
+    {
+      "file": "TeensyOBDSDLogger/CaptureRing.h",
+      "sha256": "b0648cee8e5a6690e87771c1043c0c0e87458cee6b756daab462dc2d59a9db3d",
+      "lines": 23,
+      "charts": "09",
+      "function_index": [
+        {
+          "name": "begin",
+          "line": 10
+        },
+        {
+          "name": "push",
+          "line": 11
+        },
+        {
+          "name": "pop",
+          "line": 16
+        },
+        {
+          "name": "size",
+          "line": 21
+        }
+      ]
+    },
+    {
+      "file": "TeensyOBDSDLogger/CaptureTimer.h",
+      "sha256": "68b2b8aba52b3e9f77a0391e9798e4674b6dc96a3ba019a94b96e9d02812c09b",
+      "lines": 27,
+      "charts": "02,08",
+      "function_index": [
+        {
+          "name": "begin",
+          "line": 10
+        },
+        {
+          "name": "now",
+          "line": 25
+        }
+      ]
+    },
+    {
+      "file": "TeensyOBDSDLogger/Config.h",
+      "sha256": "ee5b361da99df03db52c81d2f6740bfa5d5587eb61d89c8b5765ec84b90159b5",
+      "lines": 83,
+      "charts": "04-05",
+      "function_index": [
+        {
+          "name": "modeName",
+          "line": 7
+        },
+        {
+          "name": "hexId",
+          "line": 14
+        },
+        {
+          "name": "readUInt",
+          "line": 24
+        },
+        {
+          "name": "parseConfig",
+          "line": 29
+        }
+      ]
+    },
+    {
+      "file": "TeensyOBDSDLogger/DiagnosticCore.h",
+      "sha256": "91981ba5926afca16f47a57516a1fb6ffe2be5a7312aacda7154434a68c32c91",
+      "lines": 189,
+      "charts": "05,15-20",
+      "function_index": [
+        {
+          "name": "accepts",
+          "line": 12
+        },
+        {
+          "name": "flowId",
+          "line": 18
+        },
+        {
+          "name": "parseHex",
+          "line": 23
+        },
+        {
+          "name": "~Sink",
+          "line": 47
+        },
+        {
+          "name": "allExpectedComplete",
+          "line": 65
+        },
+        {
+          "name": "endRequest",
+          "line": 72
+        },
+        {
+          "name": "emit",
+          "line": 82
+        },
+        {
+          "name": "state",
+          "line": 83
+        },
+        {
+          "name": "matches",
+          "line": 88
+        },
+        {
+          "name": "flow",
+          "line": 96
+        },
+        {
+          "name": "complete",
+          "line": 102
+        },
+        {
+          "name": "DiagnosticCore",
+          "line": 121
+        },
+        {
+          "name": "busy",
+          "line": 122
+        },
+        {
+          "name": "setResponseWindow",
+          "line": 123
+        },
+        {
+          "name": "cancel",
+          "line": 124
+        },
+        {
+          "name": "start",
+          "line": 125
+        },
+        {
+          "name": "receive",
+          "line": 139
+        },
+        {
+          "name": "tick",
+          "line": 172
+        }
+      ]
+    },
+    {
+      "file": "TeensyOBDSDLogger/Discovery.h",
+      "sha256": "09f9cda355da480721961cb9a0365dbd944e5ee098fcae933b72ab4a0306427e",
+      "lines": 94,
+      "charts": "11-13",
+      "function_index": [
+        {
+          "name": "modeAt",
+          "line": 14
+        },
+        {
+          "name": "continuation",
+          "line": 15
+        },
+        {
+          "name": "missingExpected",
+          "line": 19
+        },
+        {
+          "name": "begin",
+          "line": 27
+        },
+        {
+          "name": "busy",
+          "line": 28
+        },
+        {
+          "name": "attemptNumber",
+          "line": 29
+        },
+        {
+          "name": "request",
+          "line": 30
+        },
+        {
+          "name": "observe",
+          "line": 31
+        },
+        {
+          "name": "receive",
+          "line": 37
+        },
+        {
+          "name": "finishTransaction",
+          "line": 48
+        },
+        {
+          "name": "support",
+          "line": 55
+        },
+        {
+          "name": "requestSupport",
+          "line": 69
+        },
+        {
+          "name": "expected",
+          "line": 84
+        },
+        {
+          "name": "name",
+          "line": 92
+        }
+      ]
+    },
+    {
+      "file": "TeensyOBDSDLogger/J1979Validation.h",
+      "sha256": "d03b821df3997dd5e4e4d3e9f9bf7384f54337e698d201db2aefadf25dfa9503",
+      "lines": 75,
+      "charts": "18",
+      "function_index": [
+        {
+          "name": "validationName",
+          "line": 9
+        },
+        {
+          "name": "invalidData",
+          "line": 17
+        },
+        {
+          "name": "supportIdentifier",
+          "line": 20
+        },
+        {
+          "name": "reviewedPidLength",
+          "line": 24
+        },
+        {
+          "name": "vinCharacter",
+          "line": 35
+        },
+        {
+          "name": "hasReviewedLayout",
+          "line": 40
+        },
+        {
+          "name": "validateData",
+          "line": 48
+        }
+      ]
+    },
+    {
+      "file": "TeensyOBDSDLogger/LogReport.h",
+      "sha256": "0bc007e7d962bb00724ee1a031a84bb88987cf55d9829dad59d8275ec2e0b167",
+      "lines": 153,
+      "charts": "33",
+      "function_index": [
+        {
+          "name": "leap",
+          "line": 11
+        },
+        {
+          "name": "monthDays",
+          "line": 12
+        },
+        {
+          "name": "parseLocalDate",
+          "line": 17
+        },
+        {
+          "name": "formatLocalDate",
+          "line": 28
+        },
+        {
+          "name": "formatHeader",
+          "line": 35
+        },
+        {
+          "name": "formatElapsedHeader",
+          "line": 41
+        },
+        {
+          "name": "formatEvent",
+          "line": 44
+        },
+        {
+          "name": "modeName",
+          "line": 50
+        },
+        {
+          "name": "parameterName",
+          "line": 65
+        },
+        {
+          "name": "reportRequest",
+          "line": 84
+        },
+        {
+          "name": "reportPositive",
+          "line": 92
+        }
+      ]
+    },
+    {
+      "file": "TeensyOBDSDLogger/LogRotation.h",
+      "sha256": "edde133792a586e281806ecb4a4d33aa9674ddd98d75063d414f09ec4d97d8b2",
+      "lines": 8,
+      "charts": "23",
+      "function_index": [
+        {
+          "name": "needsLogRotation",
+          "line": 5
+        }
+      ]
+    },
+    {
+      "file": "TeensyOBDSDLogger/Mode4Feedback.h",
+      "sha256": "d6f84797fdbce6850ded205b24fac362a454d00b9de09ecdc7a6e960cb07765a",
+      "lines": 48,
+      "charts": "20-21,26,33",
+      "function_index": [
+        {
+          "name": "queued",
+          "line": 18
+        },
+        {
+          "name": "begin",
+          "line": 19
+        },
+        {
+          "name": "observe",
+          "line": 24
+        },
+        {
+          "name": "finish",
+          "line": 31
+        },
+        {
+          "name": "update",
+          "line": 35
+        },
+        {
+          "name": "yellow",
+          "line": 38
+        },
+        {
+          "name": "red",
+          "line": 43
+        },
+        {
+          "name": "occupied",
+          "line": 46
+        }
+      ]
+    },
+    {
+      "file": "TeensyOBDSDLogger/ProductIdentity.h",
+      "sha256": "8a415dae1909b3a272db9c0a478af4f48c0659769a0a0f80fb899ace26b6dca1",
+      "lines": 5,
+      "charts": "02,23,25,27",
+      "function_index": []
+    },
+    {
+      "file": "TeensyOBDSDLogger/Readiness.h",
+      "sha256": "2e48fd065c3fc0bb26a2a58e38de00a45973fb4f214cdfb549b0238033c862db",
+      "lines": 60,
+      "charts": "28",
+      "function_index": [
+        {
+          "name": "mil",
+          "line": 11
+        },
+        {
+          "name": "dtcs",
+          "line": 12
+        },
+        {
+          "name": "compression",
+          "line": 13
+        },
+        {
+          "name": "commonSupported",
+          "line": 14
+        },
+        {
+          "name": "commonComplete",
+          "line": 15
+        },
+        {
+          "name": "reservedMask",
+          "line": 16
+        },
+        {
+          "name": "reservedSet",
+          "line": 17
+        },
+        {
+          "name": "monitorSupported",
+          "line": 18
+        },
+        {
+          "name": "monitorState",
+          "line": 19
+        },
+        {
+          "name": "monitorName",
+          "line": 23
+        },
+        {
+          "name": "decodeReadiness",
+          "line": 37
+        },
+        {
+          "name": "traceReadiness",
+          "line": 43
+        }
+      ]
+    },
+    {
+      "file": "TeensyOBDSDLogger/ReceivePipeline.h",
+      "sha256": "34acbbe2daef2f364d850aec03438d8cb8f91d5b00b46d466728313669dc2fd5",
+      "lines": 28,
+      "charts": "06,09,24",
+      "function_index": [
+        {
+          "name": "begin",
+          "line": 10
+        },
+        {
+          "name": "stage",
+          "line": 14
+        },
+        {
+          "name": "staged",
+          "line": 15
+        },
+        {
+          "name": "buffered",
+          "line": 16
+        },
+        {
+          "name": "pending",
+          "line": 17
+        },
+        {
+          "name": "transfer",
+          "line": 18
+        },
+        {
+          "name": "pop",
+          "line": 26
+        }
+      ]
+    },
+    {
+      "file": "TeensyOBDSDLogger/RunControl.h",
+      "sha256": "ee6205c496334ec97f0ce4e43229ea0d7912ffca6ac983cb3550a6ed8a946cdd",
+      "lines": 43,
+      "charts": "10,14,21,33",
+      "function_index": [
+        {
+          "name": "durationReached",
+          "line": 4
+        },
+        {
+          "name": "ready",
+          "line": 8
+        },
+        {
+          "name": "submitted",
+          "line": 9
+        },
+        {
+          "name": "update",
+          "line": 17
+        },
+        {
+          "name": "holding",
+          "line": 29
+        },
+        {
+          "name": "StopButton",
+          "line": 34
+        },
+        {
+          "name": "update",
+          "line": 35
+        }
+      ]
+    },
+    {
+      "file": "TeensyOBDSDLogger/Schedule.h",
+      "sha256": "e714926c26e9ce9f56e400888b6cd36b7d2c54877608e141ea88c536ee06af57",
+      "lines": 34,
+      "charts": "14,24",
+      "function_index": [
+        {
+          "name": "begin",
+          "line": 13
+        },
+        {
+          "name": "select",
+          "line": 17
+        },
+        {
+          "name": "finish",
+          "line": 28
+        }
+      ]
+    },
+    {
+      "file": "TeensyOBDSDLogger/src/mtp/OBD_MTP.cpp",
+      "sha256": "7b042b2e9a869c22b6beda848931d56756051bea6fd75edfddde66fb963a5d35",
+      "lines": 2570,
+      "charts": "29-31",
+      "function_index": [
+        {
+          "name": "usb_mtp_first_rx_cb",
+          "line": 90
+        },
+        {
+          "name": "MTP_class::begin",
+          "line": 95
+        },
+        {
+          "name": "MTP_class::loop",
+          "line": 112
+        },
+        {
+          "name": "MTP_class::_interval_timer_handler",
+          "line": 297
+        },
+        {
+          "name": "MTP_class::processIntervalTimer",
+          "line": 302
+        },
+        {
+          "name": "MTP_class::SendObjectInfo",
+          "line": 388
+        },
+        {
+          "name": "MTP_class::SendObject",
+          "line": 463
+        },
+        {
+          "name": "MTP_class::SendObject",
+          "line": 582
+        },
+        {
+          "name": "MTP_class::GetObjectInfo",
+          "line": 661
+        },
+        {
+          "name": "MTP_class::GetObject",
+          "line": 730
+        },
+        {
+          "name": "MTP_class::GetObject",
+          "line": 780
+        },
+        {
+          "name": "MTP_class::GetPartialObject",
+          "line": 824
+        },
+        {
+          "name": "MTP_class::deleteObject",
+          "line": 868
+        },
+        {
+          "name": "MTP_class::moveObject",
+          "line": 879
+        },
+        {
+          "name": "MTP_class::copyObject",
+          "line": 894
+        },
+        {
+          "name": "MTP_class::formatStore",
+          "line": 906
+        },
+        {
+          "name": "MTP_class::GetStorageIDs",
+          "line": 943
+        },
+        {
+          "name": "MTP_class::GetStorageInfo",
+          "line": 976
+        },
+        {
+          "name": "MTP_class::GetNumObjects",
+          "line": 1024
+        },
+        {
+          "name": "MTP_class::GetObjectHandles",
+          "line": 1048
+        },
+        {
+          "name": "MTP_class::GetDevicePropValue",
+          "line": 1085
+        },
+        {
+          "name": "MTP_class::GetObjectPropDesc",
+          "line": 1105
+        },
+        {
+          "name": "MTP_class::GetObjectPropValue",
+          "line": 1241
+        },
+        {
+          "name": "MTP_class::setObjectPropValue",
+          "line": 1361
+        },
+        {
+          "name": "MTP_class::GetDevicePropDesc",
+          "line": 1387
+        },
+        {
+          "name": "MTP_class::GetObjectPropsSupported",
+          "line": 1410
+        },
+        {
+          "name": "MTP_class::GetDeviceInfo",
+          "line": 1436
+        },
+        {
+          "name": "MTP_class::OpenSession",
+          "line": 1541
+        },
+        {
+          "name": "MTP_class::readDataPhaseHeader",
+          "line": 1557
+        },
+        {
+          "name": "MTP_class::readstring",
+          "line": 1566
+        },
+        {
+          "name": "MTP_class::readDateTimeString",
+          "line": 1599
+        },
+        {
+          "name": "MTP_class::read",
+          "line": 1636
+        },
+        {
+          "name": "MTP_class::writeDataPhaseHeader",
+          "line": 1664
+        },
+        {
+          "name": "utf8_strlen",
+          "line": 1677
+        },
+        {
+          "name": "MTP_class::writestring",
+          "line": 1698
+        },
+        {
+          "name": "MTP_class::writestringlen",
+          "line": 1729
+        },
+        {
+          "name": "MTP_class::write",
+          "line": 1735
+        },
+        {
+          "name": "MTP_class::write_finish",
+          "line": 1759
+        },
+        {
+          "name": "MTP_class::free_received_bulk",
+          "line": 1794
+        },
+        {
+          "name": "MTP_class::allocate_transmit_bulk",
+          "line": 1803
+        },
+        {
+          "name": "MTP_class::transmit_bulk",
+          "line": 1818
+        },
+        {
+          "name": "MTP_class::receive_bulk",
+          "line": 1837
+        },
+        {
+          "name": "MTP_class::free_received_bulk",
+          "line": 1856
+        },
+        {
+          "name": "MTP_class::allocate_transmit_bulk",
+          "line": 1861
+        },
+        {
+          "name": "MTP_class::transmit_bulk",
+          "line": 1869
+        },
+        {
+          "name": "usb_init_events",
+          "line": 1900
+        },
+        {
+          "name": "usb_mtp_sendEvent",
+          "line": 1908
+        },
+        {
+          "name": "usb_init_events",
+          "line": 1965
+        },
+        {
+          "name": "usb_mtp_wait",
+          "line": 1975
+        },
+        {
+          "name": "usb_mtp_recvEvent",
+          "line": 1990
+        },
+        {
+          "name": "usb_mtp_sendEvent",
+          "line": 2005
+        },
+        {
+          "name": "MTP_class::send_Event",
+          "line": 2025
+        },
+        {
+          "name": "MTP_class::send_Event",
+          "line": 2037
+        },
+        {
+          "name": "MTP_class::send_Event",
+          "line": 2049
+        },
+        {
+          "name": "MTP_class::send_Event",
+          "line": 2061
+        },
+        {
+          "name": "MTP_class::send_DeviceResetEvent",
+          "line": 2075
+        },
+        {
+          "name": "MTP_class::send_StorageInfoChangedEvent",
+          "line": 2080
+        },
+        {
+          "name": "MTP_class::send_addObjectEvent",
+          "line": 2085
+        },
+        {
+          "name": "MTP_class::send_removeObjectEvent",
+          "line": 2088
+        },
+        {
+          "name": "MTP_class::send_StoreAddedEvent",
+          "line": 2092
+        },
+        {
+          "name": "MTP_class::send_StoreRemovedEvent",
+          "line": 2098
+        },
+        {
+          "name": "MTP_class::send_addObjectEvent",
+          "line": 2103
+        },
+        {
+          "name": "MTP_class::send_removeObjectEvent",
+          "line": 2116
+        },
+        {
+          "name": "MTP_class::printFilesystemsInfo",
+          "line": 2138
+        },
+        {
+          "name": "MTP_class::printContainer",
+          "line": 2166
+        }
+      ]
+    },
+    {
+      "file": "TeensyOBDSDLogger/src/mtp/PROVENANCE.md",
+      "sha256": "0d1a700e03ed77a408296e014a1fc5c2427223dc9a0ae63c7cc2179045955293",
+      "lines": 9,
+      "charts": "29-31",
+      "function_index": []
+    },
+    {
+      "file": "TeensyOBDSDLogger/src/mtp/VisibleObjects.h",
+      "sha256": "45544b9ba7cb626f301c12d246a0b9f98c4cf38c62731ff94e33fca5f3d697b1",
+      "lines": 34,
+      "charts": "29",
+      "function_index": [
+        {
+          "name": "sameName",
+          "line": 6
+        },
+        {
+          "name": "objectVisible",
+          "line": 18
+        }
+      ]
+    },
+    {
+      "file": "TeensyOBDSDLogger/StoragePaths.h",
+      "sha256": "f865be1d8dca8c469905110766fdabbe197a17d1e9a9c4e2f7f1d3f09246b136",
+      "lines": 36,
+      "charts": "03,23",
+      "function_index": [
+        {
+          "name": "formatLogPath",
+          "line": 12
+        },
+        {
+          "name": "configPath",
+          "line": 23
+        },
+        {
+          "name": "ensureDirectory",
+          "line": 29
+        }
+      ]
+    },
+    {
+      "file": "TeensyOBDSDLogger/TeensyOBDSDLogger.ino",
+      "sha256": "6f86539dd9943d47f1fb75aee5ebdb182fffdb3a5b6df2c6bd2c8c818f971637",
+      "lines": 899,
+      "charts": "01,03,06-11,13-15,20-27,32",
+      "function_index": [
+        {
+          "name": "canMode",
+          "line": 45
+        },
+        {
+          "name": "available",
+          "line": 61
+        },
+        {
+          "name": "read",
+          "line": 61
+        },
+        {
+          "name": "peek",
+          "line": 62
+        },
+        {
+          "name": "flush",
+          "line": 62
+        },
+        {
+          "name": "write",
+          "line": 63
+        },
+        {
+          "name": "captureNowUs",
+          "line": 84
+        },
+        {
+          "name": "capturePending",
+          "line": 102
+        },
+        {
+          "name": "transferCapture",
+          "line": 103
+        },
+        {
+          "name": "obdWrite",
+          "line": 122
+        },
+        {
+          "name": "exchangeWrite",
+          "line": 128
+        },
+        {
+          "name": "obdStatus",
+          "line": 129
+        },
+        {
+          "name": "queueConsole",
+          "line": 136
+        },
+        {
+          "name": "pumpConsole",
+          "line": 144
+        },
+        {
+          "name": "recordAt",
+          "line": 153
+        },
+        {
+          "name": "note",
+          "line": 163
+        },
+        {
+          "name": "raw",
+          "line": 164
+        },
+        {
+          "name": "writeCanFooter",
+          "line": 170
+        },
+        {
+          "name": "prepareLogBatch",
+          "line": 179
+        },
+        {
+          "name": "writeFileBatch",
+          "line": 194
+        },
+        {
+          "name": "writeBatch",
+          "line": 206
+        },
+        {
+          "name": "fileWriteError",
+          "line": 207
+        },
+        {
+          "name": "flushFiles",
+          "line": 208
+        },
+        {
+          "name": "closeFiles",
+          "line": 209
+        },
+        {
+          "name": "writeHeaders",
+          "line": 210
+        },
+        {
+          "name": "pumpLog",
+          "line": 232
+        },
+        {
+          "name": "onCan",
+          "line": 241
+        },
+        {
+          "name": "popCapture",
+          "line": 249
+        },
+        {
+          "name": "txPending",
+          "line": 250
+        },
+        {
+          "name": "captureCanInterrupt",
+          "line": 256
+        },
+        {
+          "name": "configureCan",
+          "line": 287
+        },
+        {
+          "name": "nrcName",
+          "line": 298
+        },
+        {
+          "name": "traceExchangeRequest",
+          "line": 307
+        },
+        {
+          "name": "send",
+          "line": 315
+        },
+        {
+          "name": "event",
+          "line": 335
+        },
+        {
+          "name": "startRequest",
+          "line": 393
+        },
+        {
+          "name": "exposeSD",
+          "line": 405
+        },
+        {
+          "name": "openLogSegment",
+          "line": 410
+        },
+        {
+          "name": "updateStatus",
+          "line": 422
+        },
+        {
+          "name": "pollStop",
+          "line": 429
+        },
+        {
+          "name": "setup",
+          "line": 457
+        },
+        {
+          "name": "summary",
+          "line": 549
+        },
+        {
+          "name": "stopRun",
+          "line": 582
+        },
+        {
+          "name": "finishDisplayTransfer",
+          "line": 600
+        },
+        {
+          "name": "drawDisplayBadge",
+          "line": 607
+        },
+        {
+          "name": "updateDisplay",
+          "line": 614
+        },
+        {
+          "name": "loop",
+          "line": 719
+        }
+      ]
+    },
+    {
+      "file": "TeensyOBDSDLogger/TraceFormat.h",
+      "sha256": "df7d23be500ce2782ddc65a97a85ccead4ccb7e3215b1a8188663391971e7ed2",
+      "lines": 27,
+      "charts": "20,22,28",
+      "function_index": [
+        {
+          "name": "traceCan",
+          "line": 7
+        },
+        {
+          "name": "tracePayload",
+          "line": 14
+        },
+        {
+          "name": "traceRequest",
+          "line": 21
+        }
+      ]
+    },
+    {
+      "file": "TeensyOBDSDLogger/usb_identity.c",
+      "sha256": "67df23999ac5a2f7e64d0986e572d947ba9b29ba16b88467133343e709e17736",
+      "lines": 22,
+      "charts": "02,25,29",
+      "function_index": [
+        {
+          "name": "startup_middle_hook",
+          "line": 16
+        }
+      ]
+    }
+  ]
+}

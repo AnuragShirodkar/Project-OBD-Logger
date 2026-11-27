@@ -1,0 +1,13 @@
+{
+  "firmware": "1.2.0-dev9-oled-gaps",
+  "source_commit": "125bcc7",
+  "flowchart_pages": 33,
+  "source_files_verified": 22,
+  "titles_nodes_notes_checked": 587,
+  "pdf_missing_items": 0,
+  "pptx_missing_items": 0,
+  "pptx_flattened_pictures": 0,
+  "canva_items_checked": 587,
+  "canva_missing_items": 0,
+  "scope": "Runtime module/control-flow coverage; not machine-instruction coverage or independent driver verification."
+}

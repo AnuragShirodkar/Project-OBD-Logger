@@ -1,5 +1,8 @@
 # SkiDrive OBD/CAN Logger
 
+The [33-page code-flowchart atlas](docs/flowcharts/dev9/README.md) maps the dev9
+runtime, with an editable Canva design, PDF and source-to-chart references.
+
 ## Separate OBD/CAN project
 
 This folder contains the current two-mode project, separated from the previous
