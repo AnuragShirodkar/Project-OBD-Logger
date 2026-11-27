@@ -40,7 +40,9 @@ post-installation verification. Compilation is not proof of those device results
 27 November results: all 14 host test executables and the layout reporter passed;
 the final Serial + MTP Teensy 4.1 build succeeded. Compiled-image string inspection
 confirmed the dev6 version, log title, USB name format and `display_name` field.
-The installed device remains dev5 until this build is uploaded.
+Dev6 was subsequently installed and its Windows name, API reply and on-card OBD
+header verified; see [installation results](test-reports/2026-11-27-dev6-skidrive-installation.md).
+Live receive-load validation remains pending.
 
 Prepared HEX SHA-256:
 `9B7C6D58E8897BF462E8E5B5A6F6FF516D5DC17E42EE3F8C1237AE1248364DF3`

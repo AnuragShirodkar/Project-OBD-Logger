@@ -1,6 +1,7 @@
 # SkiDrive OBD and CAN mode - Windows integration
 
-Current build: `1.2.0-dev6-skidrive` (product-name update; installation pending).
+Current build: `1.2.0-dev6-skidrive` (installed on OBD_1757338; Windows name, API
+display name and OBD log header verified). See [dev6 installation check](test-reports/2026-11-27-dev6-skidrive-installation.md).
 Dev5 was installed on OBD_1757338; USB startup/readback checked, receive-load
 validation pending. See [receive-path notes](receive-path-dev5.md)
 and [installation check](test-reports/2026-11-27-dev5-installation-usb-check.md).
