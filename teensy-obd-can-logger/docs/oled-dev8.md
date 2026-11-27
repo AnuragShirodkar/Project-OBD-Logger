@@ -8,8 +8,17 @@ at x=0, width=25; SD stays at x=85, width=43. ERROR is now at x=38, width=34,
 giving **13 blank columns on each side**. LIVE/WAIT are at x=41, width=28,
 giving **16 blank columns on each side**. Existing font, main message, startup
 screen and moving connection track are unchanged. The older geometry and dev8
-installation results below are historical. New compilation/installation checks
-will be recorded after verification.
+installation results below are historical.
+
+27 November dev9 check: compilation succeeded and arithmetic bounds/gap checks
+passed for LIVE, WAIT and ERROR. Hidden CLI installation returned exit code 0.
+Before recovery entry, verified the dev8 pending-TX fault was stopped with zero
+SD/log/capture failures and a readable drained log. After restart, USB verified
+**1.2.0-dev9-oled-gaps**, unchanged ID **OBD_1757338**, SD mounted and OLED ready.
+No configuration or existing recording was changed. Physical dev9 appearance
+still requires user observation; this UI check does not validate live CAN load.
+Image SHA-256:
+`874AD7430334AF575DFCE1D1D51D3C6FBF90E1827A381EE20561B3A2C2462F80`
 
 Supersedes the dev7 top-row order. Startup branding, main status text and the
 moving connection track remain as in [dev7](oled-dev7.md).
