@@ -9,7 +9,8 @@ and independent-timer changes. It does not introduce configurable CAN filters.
   hardware-derived number changing automatically for other units.
 - USB/MTP manufacturer: **Skillicon Technologies**.
 - Permanent device/API ID: **OBD_1757338**, unchanged.
-- Existing OBD/CAN file naming and OLED compact ID: unchanged.
+- Existing OBD/CAN file naming: unchanged. From dev7 the numeric ID appears below
+  SkiDrive on the startup screen; it no longer occupies the recording header.
 - OBD and CAN log titles: **SkiDrive OBD/CAN Logger**. The separate Firmware field
   records the actual build; the stale SkillLogger Version 1.0.0 heading is removed.
 

@@ -18,7 +18,7 @@
 #include "Readiness.h"
 #include "StoragePaths.h"
 #include "CanRecording.h"
-constexpr char FIRMWARE_VERSION[]="1.2.0-dev6-skidrive";
+constexpr char FIRMWARE_VERSION[]="1.2.0-dev7-oled";
 automatic::Mode4Feedback mode4Feedback;
 Adafruit_SSD1306 oled(128,32,&Wire,-1);
 bool oledReady=false;
@@ -604,6 +604,13 @@ bool finishDisplayTransfer(){
   if(!finished)obdStatus("OLED_IO_FAILED");
   return false;
 }
+void drawDisplayBadge(int x,int width,const char *text){
+  const int textWidth=6*strlen(text)-1;
+  oled.fillRoundRect(x,0,width,9,2,SSD1306_WHITE);
+  oled.setTextColor(SSD1306_BLACK);
+  oled.setCursor(x+(width-textWidth)/2,1);oled.print(text);
+  oled.setTextColor(SSD1306_WHITE);
+}
 void updateDisplay(){
   const uint32_t now=millis();
   mode4Feedback.update(now);
@@ -612,6 +619,8 @@ void updateDisplay(){
   static uint16_t sent=512;
   static uint32_t lastDraw=0;
   static bool firstDraw=true;
+  static bool splashStarted=false;
+  static uint32_t splashAt=0;
   static uint8_t pulsePosition=0;
 
   // Keep the framebuffer unchanged until the whole image has been transferred.
@@ -624,6 +633,7 @@ void updateDisplay(){
   }
   if(!firstDraw && uint32_t(now-lastDraw)<100)return;
   firstDraw=false;lastDraw=now;
+  if(!splashStarted){splashAt=now;splashStarted=true;}
 
   const bool recentReply=canMode()?automatic::canTrafficRecent(canFrameSeen,lastCanFrameAt,now):
     obdReplySeen && uint32_t(now-lastObdReplyAt)<5000;
@@ -636,7 +646,7 @@ void updateDisplay(){
   const char *badge=flowing?"LIVE":lost?"LOST":"WAIT";
   if(closing)badge="SAVE";
   if(finished)badge=fileTransferActive?"USB":"OFF";
-  if(fault)badge="ERR";
+  if(fault)badge="ERROR";
 
   const char *status=running?"RECORDING":"CONNECTING";
   if(!canMode()&&!closing && !finished){
@@ -648,7 +658,7 @@ void updateDisplay(){
   }
   if(canMode()&&!closing&&!finished)status=running?(recentReply?"RECORDING":"NO TRAFFIC"):"STARTING";
   if(closing)status="SAVING";
-  if(finished)status=lost?"LINK LOST":fileTransferActive?(canMode()?"SD ACCESS":"SD FILES"):"STOPPED";
+  if(finished)status=lost?"LINK LOST":fileTransferActive?"SD ACCESS":"STOPPED";
   if(fault)status=sdMounted?"LOG ERROR":"NO SD CARD";
   if(configurationRejected)status="CONFIG ERROR";
 
@@ -656,44 +666,45 @@ void updateDisplay(){
   oled.setTextWrap(false);
   oled.setTextColor(SSD1306_WHITE);
   oled.setTextSize(1);
-  oled.setCursor(0,1);oled.print(loggerName);
-
-  const unsigned statusScale=strlen(status)>10?1:2;
-  oled.setTextSize(statusScale);
-  oled.setCursor((128-6*statusScale*strlen(status))/2,12);oled.print(status);
-  oled.setTextSize(1);
-
   // Keep the startup snapshot plus successful writes. A FAT free-space scan
   // here can stall USB control responses; host edits are reflected after reset.
-  char storage[22];
-  if(!sdMounted)snprintf(storage,sizeof storage,"SD : NO");
-  else if(!storageTotal)snprintf(storage,sizeof storage,"SD : --");
+  char storage[10];
+  if(!sdMounted)snprintf(storage,sizeof storage,"SD:NO");
+  else if(!storageTotal)snprintf(storage,sizeof storage,"SD:--");
   else {
     // Approximate while recording: filesystem allocation overhead is not counted.
     const unsigned percent=storageUsed>=storageTotal?100:unsigned(storageUsed*100/storageTotal);
-    snprintf(storage,sizeof storage,"SD : %u%%",percent);
+    snprintf(storage,sizeof storage,"SD:%u%%",percent);
   }
-  // Alternate the right badge to retain the full ID at the original font size.
-  char activity[16];snprintf(activity,sizeof activity,"%s %s",modeKnown?(canMode()?"CAN":"OBD"):"---",badge);
-  const char *headerBadge=((now/2000u)%2u)?storage:activity;
-  const int badgeWidth=max(32,int(6*strlen(headerBadge)+1));
-  const int badgeX=128-badgeWidth;
-  oled.fillRoundRect(badgeX,0,badgeWidth,9,2,SSD1306_WHITE);
-  oled.setTextColor(SSD1306_BLACK);
-  oled.setCursor(badgeX+(badgeWidth-(6*strlen(headerBadge)-1))/2,1);
-  oled.print(headerBadge);
-  oled.setTextColor(SSD1306_WHITE);
-
-  // Traveling bright pulse over a dotted track. Hold its exact position on loss.
-  if(flowing)pulsePosition=uint8_t((pulsePosition+4)%128);
-  for(int x=0;x<128;x+=4)oled.drawPixel(x,30,SSD1306_WHITE);
-  if(canMode()?canFrameSeen:obdReplySeen){
-    for(int x=0;x<128;++x){
-      const uint8_t distance=uint8_t((x+128-pulsePosition)%128);
-      if(distance<20)oled.drawPixel(x,30,SSD1306_WHITE);
-      if(distance>=7 && distance<=12){
-        oled.drawPixel(x,29,SSD1306_WHITE);
-        oled.drawPixel(x,31,SSD1306_WHITE);
+  // Branding has no delay(): reception and logging continue during this screen.
+  // Faults take precedence immediately instead of being hidden by the splash.
+  const bool showSplash=!fault&&uint32_t(now-splashAt)<1500;
+  if(showSplash){
+    oled.setTextSize(2);oled.setCursor(16,1);oled.print(SKIDRIVE_PRODUCT);
+    const char *numericId=!strncmp(loggerName,"OBD_",4)?loggerName+4:loggerName;
+    char identity[24];snprintf(identity,sizeof identity,"ID:%s",numericId);
+    oled.setTextSize(1);oled.setCursor((128-6*strlen(identity))/2,21);oled.print(identity);
+  }else{
+    // All three labels remain visible; no alternating storage/activity badge.
+    // SD:100% (7 chars) fits the left 45 px; ERROR fits the centred 36 px.
+    drawDisplayBadge(0,45,storage);
+    drawDisplayBadge(46,36,badge);
+    drawDisplayBadge(103,25,modeKnown?(canMode()?"CAN":"OBD"):"---");
+    const unsigned statusScale=strlen(status)>10?1:2;
+    oled.setTextSize(statusScale);
+    oled.setCursor((128-6*statusScale*strlen(status))/2,12);oled.print(status);
+    oled.setTextSize(1);
+    // Traveling bright pulse over a dotted track. Hold its exact position on loss.
+    if(flowing)pulsePosition=uint8_t((pulsePosition+4)%128);
+    for(int x=0;x<128;x+=4)oled.drawPixel(x,30,SSD1306_WHITE);
+    if(canMode()?canFrameSeen:obdReplySeen){
+      for(int x=0;x<128;++x){
+        const uint8_t distance=uint8_t((x+128-pulsePosition)%128);
+        if(distance<20)oled.drawPixel(x,30,SSD1306_WHITE);
+        if(distance>=7 && distance<=12){
+          oled.drawPixel(x,29,SSD1306_WHITE);
+          oled.drawPixel(x,31,SSD1306_WHITE);
+        }
       }
     }
   }
