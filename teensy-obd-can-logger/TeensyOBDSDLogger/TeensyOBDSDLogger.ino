@@ -7,6 +7,8 @@
 #include "TraceFormat.h"
 #include "Config.h"
 #include "CaptureRing.h"
+#include "ReceivePipeline.h"
+#include "CaptureTimer.h"
 #include <new>
 #include <util/atomic.h>
 #include "RunControl.h"
@@ -16,7 +18,7 @@
 #include "Readiness.h"
 #include "StoragePaths.h"
 #include "CanRecording.h"
-constexpr char FIRMWARE_VERSION[]="1.2.0-dev4-idle-sd";
+constexpr char FIRMWARE_VERSION[]="1.2.0-dev5-rx-stage";
 automatic::Mode4Feedback mode4Feedback;
 Adafruit_SSD1306 oled(128,32,&Wire,-1);
 bool oledReady=false;
@@ -74,23 +76,35 @@ uint32_t flushAt=0;
 struct Captured { CAN_message_t frame; uint64_t atUs; uint32_t ms,sequence; };
 bool popCapture(Captured &c); // Keep Arduino's generated prototypes after the type.
 automatic::CaptureClock captureClock;
+automatic::CaptureTimer captureTimer;
+bool captureTimerReady=false;
 uint64_t canRecordStartUs=0;
 volatile bool canFrameSeen=false;
 volatile uint32_t lastCanFrameAt=0;
 uint64_t captureNowUs(){
   uint64_t value;
-  ATOMIC_BLOCK(ATOMIC_RESTORESTATE){value=captureClock.sample(micros());}
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE){value=captureClock.sample(captureTimer.now());}
   return value;
 }
 constexpr uint32_t CAPTURE_CAPACITY=65536;
-automatic::CaptureRing<Captured> captureRing;
+constexpr uint32_t STAGING_CAPACITY=2048;
+Captured stagingMemory[STAGING_CAPACITY]; // DTCM, never PSRAM or DMA memory.
+automatic::ReceivePipeline<Captured> capturePipeline;
 Captured *captureMemory=nullptr;
 volatile uint32_t captureDrops=0, captureSeen=0, capturePeak=0, hardwareOverruns=0;
-// Cycle counts measure execution time, not the delay from bus arrival to ISR entry.
+volatile uint32_t stagingPeak=0;
+// Durations include preemption, not the delay from bus arrival to ISR entry.
 volatile uint32_t canIsrMaxCycles=0,canIsrEntries=0;
+volatile uint32_t canIsrMaxUs=0,canIsrClockDisagreements=0,canIsrMaxPasses=0;
 volatile uint32_t firstOverrunUs=0,firstOverrunFlags=0,firstOverrunEsr=0;
 uint32_t txCriticalMaxCycles=0,loopMaxGapUs=0,lastLoopUs=0;
 bool loopTimingStarted=false;
+uint32_t capturePending(){return capturePipeline.pending();}
+void transferCapture(){
+  capturePipeline.transfer(512);
+  const uint32_t used=capturePipeline.buffered();
+  if(used>capturePeak)capturePeak=used;
+}
 uint32_t reportedCaptureDrops=0, captureDrained=0;
 struct LogLine {char text[320];};
 LogLine emergencyLog[64];
@@ -180,9 +194,11 @@ void prepareLogBatch(size_t pending){
 void writeFileBatch(File &file,char *buffer,size_t &used){
   if(!used)return;
   if(sdGood){
-    uint32_t start=micros();size_t written=file.write((const uint8_t*)buffer,used);
+    transferCapture();
+    uint32_t start=captureTimer.now();size_t written=file.write((const uint8_t*)buffer,used);
     storageUsed+=written;
-    uint32_t elapsed=micros()-start;++sdWrites;if(elapsed>sdWriteMaxUs)sdWriteMaxUs=elapsed;
+    uint32_t elapsed=captureTimer.now()-start;++sdWrites;if(elapsed>sdWriteMaxUs)sdWriteMaxUs=elapsed;
+    transferCapture();
     if(written!=used){sdBytesUnwritten+=used-written;++sdFailures;sdGood=false;loggingFault=true;queueConsole("SD_WRITE_FAILED; data incomplete\n");}
   }else sdBytesUnwritten+=used;
   used=0;
@@ -227,10 +243,10 @@ void onCan(const CAN_message_t &f){
   Captured c;c.frame=f;c.atUs=captureNowUs();c.ms=millis();c.sequence=++captureSeen;
   if(canMode()){lastCanFrameAt=c.ms;canFrameSeen=true;}
   if(f.flags.overrun)++hardwareOverruns;
-  if(!captureRing.push(c)){++captureDrops;return;}
-  uint32_t used=captureRing.size();if(used>capturePeak)capturePeak=used;
+  if(!capturePipeline.stage(c)){++captureDrops;return;}
+  uint32_t used=capturePipeline.staged();if(used>stagingPeak)stagingPeak=used;
 }
-bool popCapture(Captured &c){return captureRing.pop(c);}
+bool popCapture(Captured &c){return capturePipeline.pop(c);}
 bool txPending(){
   for(unsigned i=8;i<16;++i)
     if(FLEXCAN_get_code(FLEXCANb_MBn_CS(CAN1,i))==FLEXCAN_MB_CODE_TX_ONCE)return true;
@@ -238,23 +254,35 @@ bool txPending(){
 }
 // Observe FIFO overflow BEFORE FlexCAN_T4 clears it without setting msg.flags.overrun.
 void captureCanInterrupt(){
+  const uint32_t startUs=captureTimer.now();
   const uint32_t startCycles=ARM_DWT_CYCCNT;
-  const uint32_t flags=FLEXCANb_IFLAG1(CAN1);
   ++canIsrEntries;
-  if(flags&FLEXCAN_IFLAG1_BUF7I){
-    if(captureEnabled){
-      if(!hardwareOverruns){
-        firstOverrunUs=micros();
-        firstOverrunFlags=flags;
-        firstOverrunEsr=FLEXCANb_ESR1(CAN1);
+  unsigned passes=0;
+  // The bundled library removes one FIFO frame per call. Drain a bounded burst
+  // instead of relying only on repeated NVIC entry while a FIFO backlog builds.
+  do{
+    const uint32_t flags=FLEXCANb_IFLAG1(CAN1);
+    if(flags&FLEXCAN_IFLAG1_BUF7I){
+      if(captureEnabled){
+        if(!hardwareOverruns){
+          firstOverrunUs=captureTimer.now();
+          firstOverrunFlags=flags;
+          firstOverrunEsr=FLEXCANb_ESR1(CAN1);
+        }
+        ++hardwareOverruns;
       }
-      ++hardwareOverruns;
+      FLEXCANb_IFLAG1(CAN1)=FLEXCAN_IFLAG1_BUF7I;
     }
-    FLEXCANb_IFLAG1(CAN1)=FLEXCAN_IFLAG1_BUF7I;
-  }
-  flexcan_isr_can1();
+    flexcan_isr_can1();
+    ++passes;
+  }while(passes<8&&(FLEXCANb_IFLAG1(CAN1)&FLEXCAN_IFLAG1_BUF5I));
   const uint32_t elapsed=ARM_DWT_CYCCNT-startCycles;
+  const uint32_t elapsedUs=captureTimer.now()-startUs;
   if(elapsed>canIsrMaxCycles)canIsrMaxCycles=elapsed;
+  if(elapsedUs>canIsrMaxUs)canIsrMaxUs=elapsedUs;
+  if(passes>canIsrMaxPasses)canIsrMaxPasses=passes;
+  const uint32_t cycleUs=elapsed/(F_CPU_ACTUAL/1000000u);
+  if((cycleUs>elapsedUs?cycleUs-elapsedUs:elapsedUs-cycleUs)>100)++canIsrClockDisagreements;
 }
 void configureCan(uint32_t rate,bool listen){
   ready=false;
@@ -262,6 +290,7 @@ void configureCan(uint32_t rate,bool listen){
   can.enableFIFO();can.setFIFOFilter(ACCEPT_ALL);
   can.onReceive(onCan);
   attachInterruptVector(IRQ_CAN1,captureCanInterrupt);
+  NVIC_SET_PRIORITY(IRQ_CAN1,64); // Above default USB/SD priority 128; below SysTick 32.
   can.enableFIFOInterrupt();
   if(!listen)can.setBaudRate(rate,TX);
   configuredRate=rate;ready=!listen;
@@ -426,6 +455,7 @@ void pollStop(){
   }
 }
 void setup(){
+  captureTimerReady=captureTimer.begin();
   Serial.begin(115200);
   pinMode(MODE4_BUTTON_PIN,INPUT_PULLUP);
   MTP.PrintStream(&mtpDebug);MTP.begin();
@@ -474,6 +504,10 @@ void setup(){
   }
   if(configGood && sdMounted && storageDirectoriesGood && openLogSegment())sdGood=writeHeaders();
   if(!sdGood)queueConsole("SD_INIT_FAILED; requests disabled\n");
+  if(configGood&&!captureTimerReady){
+    note("CAPTURE_TIMER_ERROR","GPT2 unavailable or PERCLK unexpected; CAN disabled");
+    configGood=false;loggingFault=true;lastStopReason="Capture timer unavailable";
+  }
   if(configGood){
     captureMemory=static_cast<Captured*>(extmem_malloc(sizeof(Captured)*CAPTURE_CAPACITY));
     LogLine *largeLog=static_cast<LogLine*>(extmem_malloc(sizeof(LogLine)*4096));
@@ -490,8 +524,8 @@ void setup(){
       for(unsigned i=0;i<4096;++i)new(largeLog+i) LogLine{};
       for(unsigned i=0;i<logCount;++i)largeLog[i]=logQueue[(logTail+i)%logCapacity];
       logQueue=largeLog;logTail=0;logHead=logCount;logCapacity=4096;
-      captureRing.begin(captureMemory,CAPTURE_CAPACITY);
-      note("BUFFERS","PSRAM RX capacity=65536 frames; log capacity=4096 lines; SD batches >=4096 bytes");
+      capturePipeline.begin(stagingMemory,STAGING_CAPACITY,captureMemory,CAPTURE_CAPACITY);
+      note("BUFFERS","DTCM ISR stage=2048 frames; PSRAM RX=65536 frames; log=4096 lines; timestamp=GPT2_1MHz");
     }
   }
   if(configGood&&sdGood){
@@ -517,9 +551,13 @@ void summary(){
   snprintf(b,sizeof b,"RXdrops=%lu logDrops=%lu consoleDrops=%lu",(unsigned long)captureDrops,(unsigned long)logDrops,(unsigned long)consoleDrops);
   note("STATUS",b);
   snprintf(b,sizeof b,"seen=%lu drained=%lu buffered=%lu peak=%lu capacity=%lu hw_overruns=%lu",
-    (unsigned long)captureSeen,(unsigned long)captureDrained,(unsigned long)captureRing.size(),
+    (unsigned long)captureSeen,(unsigned long)captureDrained,(unsigned long)capturePending(),
     (unsigned long)capturePeak,(unsigned long)CAPTURE_CAPACITY,(unsigned long)hardwareOverruns);
   note("CAPTURE_STATUS",b);
+  snprintf(b,sizeof b,"buffered=%lu peak=%lu capacity=%lu psram_buffered=%lu; overflow counted in RXdrops",
+    (unsigned long)capturePipeline.staged(),(unsigned long)stagingPeak,(unsigned long)STAGING_CAPACITY,
+    (unsigned long)capturePipeline.buffered());
+  note("RX_STAGING",b);
   snprintf(b,sizeof b,"log_peak=%u log_capacity=%u write_calls=%lu max_write_us=%lu write_failures=%lu unwritten_bytes=%lu",
     logPeak,logCapacity,(unsigned long)sdWrites,(unsigned long)sdWriteMaxUs,(unsigned long)sdFailures,(unsigned long)sdBytesUnwritten);
   note("SD_STATUS",b);
@@ -527,6 +565,9 @@ void summary(){
     (unsigned long)F_CPU_ACTUAL,(unsigned long)canIsrEntries,(unsigned long)canIsrMaxCycles,
     (unsigned long)txCriticalMaxCycles,(unsigned long)loopMaxGapUs);
   note("CAN_TIMING",b);
+  snprintf(b,sizeof b,"source=GPT2_1MHz max_isr_us=%lu clock_disagreements=%lu max_drain_passes=%lu irq_priority=64",
+    (unsigned long)canIsrMaxUs,(unsigned long)canIsrClockDisagreements,(unsigned long)canIsrMaxPasses);
+  note("CAPTURE_TIMING",b);
   if(hardwareOverruns){
     snprintf(b,sizeof b,"first_us=%lu flags=%08lX esr=%08lX",
       (unsigned long)firstOverrunUs,(unsigned long)firstOverrunFlags,(unsigned long)firstOverrunEsr);
@@ -665,19 +706,21 @@ void updateDisplay(){
 }
 
 void loop(){
-  captureNowUs(); // Extend micros() even while a connected bus is silent.
-  const uint32_t loopNow=micros();
+  captureNowUs(); // Extend the independent 1 MHz counter even on a silent bus.
+  const uint32_t loopNow=captureTimer.now();
   if(loopTimingStarted){
     const uint32_t gap=loopNow-lastLoopUs;
     if(gap>loopMaxGapUs)loopMaxGapUs=gap;
   }
   lastLoopUs=loopNow;loopTimingStarted=true;
+  transferCapture();
   pollStop();
   pumpConsole();
   updateDisplay();
   if(finished){pumpConsole();MTP.loop();pumpConsole();return;}
   Captured c;
   if(configGood){
+    transferCapture();
     // Reserve space for decoded messages; RX remains buffered during slow SD writes.
     for(unsigned i=0;i<128&&logCount<logCapacity-512&&popCapture(c);++i){
       obd::Frame f={};f.id=c.frame.id;f.extended=c.frame.flags.extended;f.len=c.frame.len;
@@ -688,8 +731,9 @@ void loop(){
                                    c.frame.flags.remote,f.len,f.data)){
           obdWrite(line);
         }else {note("CAN_FRAME_INVALID","Classical CAN ID/DLC cannot be represented");loggingFault=true;}
-      }else if(!closing&&diagnostics.busy()&&addressing.accepts(f)&&!c.frame.flags.remote)
-        obd::traceCan(obdWrite,"RX",f.extended,f.id,c.ms,f.data,f.len);
+      }else if(addressing.accepts(f))
+        // Preserve late/unmatched replies and records queued before stop as well.
+        obd::traceCan(obdWrite,"RX",f.extended,f.id,c.ms,f.data,f.len,c.frame.flags.remote);
       ++captureDrained;
       if(c.frame.flags.overrun){note("CAN_OVERRUN","Hardware receive overrun");loggingFault=true;}
       if(!canMode()&&!closing&&!c.frame.flags.remote)diagnostics.receive(f,c.ms);
@@ -733,7 +777,7 @@ void loop(){
     }
     else {
       if(stopRequested&&!running&&!diagnostics.busy())stopRun("User stopped during startup/discovery");
-      if(captureRing.size()==0)diagnostics.tick(millis());
+      if(capturePending()==0)diagnostics.tick(millis());
       if(transactionEnded){
         transactionEnded=false;
         if(txPending()){
@@ -747,7 +791,7 @@ void loop(){
           note("DISCOVERY_START","Modes 01/02(frame 00)/06/09; at most two attempts per range; collecting expected-responder maps");
         }
         if(discovery.busy()){
-          if(!diagnostics.busy()&&captureRing.size()==0&&requestSpacing.ready(millis())){
+          if(!diagnostics.busy()&&capturePending()==0&&requestSpacing.ready(millis())){
             uint8_t request[3];size_t length=discovery.request(request);++transaction;
             char b[96];snprintf(b,sizeof b,"mode=%02X range=%02X attempt=%u",request[0],request[1],discovery.attemptNumber());
             note("DISCOVERY_SEND",b);
@@ -787,7 +831,7 @@ void loop(){
           // Stop scheduling at the duration boundary; let the active exchange finish (up to 10 s).
           if(!diagnostics.busy())stopRun(stopRequested?"User requested stop":"Configured duration finished");
 
-        }else if(!diagnostics.busy()&&captureRing.size()==0&&requestSpacing.ready(millis())){
+        }else if(!diagnostics.busy()&&capturePending()==0&&requestSpacing.ready(millis())){
           if(probeNeeded){
             const uint8_t probe[]={0x01,0x00};
             connectionProbe=true;probeNeeded=false;++transaction;
@@ -821,7 +865,7 @@ void loop(){
       if(running&&uint32_t(now-summaryAt)>=1000){summaryAt=now;summary();}
     }
   }
-  if(closing&&captureRing.size()==0&&!finalSummary){
+  if(closing&&capturePending()==0&&!finalSummary){
     finalSummary=true;summary();note("CAPTURE_DRAINED","All queued frames processed; final SD flush follows");
   }
   for(unsigned i=0;i<128&&logCount;++i){pumpLog();pumpConsole();}

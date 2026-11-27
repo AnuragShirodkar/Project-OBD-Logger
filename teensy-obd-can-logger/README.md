@@ -15,7 +15,7 @@ This is the separate OBD/CAN Arduino sketch. Open `TeensyOBDSDLogger/TeensyOBDSD
 
 ## Dual-mode firmware (current behaviour)
 
-Firmware `1.2.0-dev4-idle-sd` selects OBD polling or Classical CAN listen-only
+Firmware `1.2.0-dev5-rx-stage` selects OBD polling or Classical CAN listen-only
 recording using one `/CONFIG/config.json`. See the [software handoff](docs/dual-mode-software-handoff.md)
 and `config.obd.example.json` / `config.can.example.json`. Version-1 configs remain
 OBD configs. New configs use version 2 and `operating_mode`. CAN recordings use
@@ -130,6 +130,10 @@ Each received frame includes `seq` (callback sequence) and `us` (callback-time m
 A finite buffer cannot guarantee zero loss at arbitrary bus load or during an arbitrarily long SD stall. Power loss can lose queued/unflushed data. If the card fails, failure details may only reach USB/the error LED because the card itself cannot reliably save them.
 
 ## Validation
+
+The dev5 receive/timestamp changes and bench pass criteria are documented in
+[the receive-path change note](docs/receive-path-dev5.md). Compilation and host
+tests do not establish that the hardware overrun issue is resolved.
 
 Run `./test.ps1` in PowerShell (requires g++, Arduino CLI and ArduinoJson 7). Tests cover configuration rejection/defaults, fair scheduling, skipped periods, timer wrap, existing ISO-TP behavior, physical-target completion and pending/timeout handling. The script also tests capture ordering, full-buffer rejection, buffer-slot wrap and complete queue draining, then compiles the standalone sketch for Teensy 4.1. Bench validation of the new firmware remains required; no firmware is uploaded by this script.
 

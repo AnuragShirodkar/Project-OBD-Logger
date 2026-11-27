@@ -1,6 +1,8 @@
 # SkiDrive OBD and CAN mode - Windows integration
 
-Firmware: `1.2.0-dev4-idle-sd`. Same hardware, one CAN channel, pins TX 22 / RX 23.
+Current build: `1.2.0-dev5-rx-stage` (compiled; receive/timestamp changes await bench
+validation). See [receive-path notes](receive-path-dev5.md).
+Same hardware, one CAN channel, pins TX 22 / RX 23.
 This adds configuration-selected behaviour, not simultaneous OBD polling and raw capture.
 Dev4 was installed on OBD_1757338 and USB-only idle shutdown, SD access and log
 readback were verified. Live CAN capture and visual OLED checks remain pending;
