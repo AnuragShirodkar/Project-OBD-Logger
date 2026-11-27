@@ -1,6 +1,6 @@
 # SkiDrive OBD and CAN mode - Windows integration
 
-Current build: `1.2.0-dev8-oled-spacing` (OLED ordering/spacing correction).
+Current build: `1.2.0-dev9-oled-gaps` (equal gaps between OLED badges).
 See [current OLED layout](oled-dev8.md) and the previous
 [OLED installation notes](oled-dev7.md). Dev6 Windows name, API display name and OBD log
 header were verified; see [dev6 installation check](test-reports/2026-11-27-dev6-skidrive-installation.md).

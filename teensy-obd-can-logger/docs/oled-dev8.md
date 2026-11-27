@@ -1,5 +1,16 @@
 # OLED correction — 1.2.0-dev8-oled-spacing
 
+## Current revision: 1.2.0-dev9-oled-gaps
+
+After reviewing the user's physical-display photo, move activity towards OBD/CAN
+to equalize both gaps instead of centring it within the entire screen. Mode stays
+at x=0, width=25; SD stays at x=85, width=43. ERROR is now at x=38, width=34,
+giving **13 blank columns on each side**. LIVE/WAIT are at x=41, width=28,
+giving **16 blank columns on each side**. Existing font, main message, startup
+screen and moving connection track are unchanged. The older geometry and dev8
+installation results below are historical. New compilation/installation checks
+will be recorded after verification.
+
 Supersedes the dev7 top-row order. Startup branding, main status text and the
 moving connection track remain as in [dev7](oled-dev7.md).
 
