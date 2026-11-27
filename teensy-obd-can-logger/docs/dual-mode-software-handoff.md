@@ -1,6 +1,7 @@
 # SkiDrive OBD and CAN mode - Windows integration
 
-Current build: `1.2.0-dev7-oled` (agreed OLED layout; installation status in
+Current build: `1.2.0-dev7-oled` (installed on OBD_1757338; USB/OLED communication
+and startup log verified, physical OLED appearance pending). Details in
 [OLED notes](oled-dev7.md)). Dev6 Windows name, API display name and OBD log
 header were verified; see [dev6 installation check](test-reports/2026-11-27-dev6-skidrive-installation.md).
 Dev5 was installed on OBD_1757338; USB startup/readback checked, receive-load

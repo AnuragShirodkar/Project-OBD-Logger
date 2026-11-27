@@ -37,4 +37,28 @@ recorded below; physical appearance and animation still need user observation.
 
 27 November: Teensy 4.1 Serial + MTP build succeeded. Header widths and longest
 status strings were reviewed against the 128x32 bounds. No recording-path logic
-was changed. Installation verification pending; physical rendering is not claimed.
+was changed.
+
+Installed on OBD_1757338 via the hidden CLI loader, exit code 0. Before software
+recovery entry, verified the previous firmware was stopped with the known USB-only
+pending-TX fault, no storage/capture drops, and a readable drained log. Normal
+update readiness remained failed; recovery was not presented as a passed normal
+preparation. No physical Program-button press or graphical loader was needed.
+The first post-upload serial open ran before Windows restored COM8 and failed;
+retrying after enumeration succeeded without reflashing.
+
+Verified USB `device_info`: firmware **1.2.0-dev7-oled**, unchanged ID
+**OBD_1757338**, product/display name retained, SD mounted, **oled_ready=true**.
+Read back `/LOGS/07_OBD_1757338.TXT` through SkiDrive_1757338 MTP. Its header
+identifies dev7 and the unchanged config fingerprint **BBCB677B**, 64 jobs,
+500 kbit/s OBD configuration. It reports no SD write failures, a 2,048-frame
+staging capacity, GPT2 timing and CAPTURE_DRAINED.
+
+HEX SHA-256:
+`C57F9559662828F0BD1A93193737003C7FCA5F263FF285DDEE40F283FFF5DA02`
+
+With CAN disconnected the retained OBD configuration stops on a pending transmit,
+so LOG ERROR remains expected in this USB-only test. No live CAN/OBD traffic was
+tested. OLED communication was checked, **not the physical pixels, animation or
+startup-screen appearance**. User observation after restart is still required;
+live receive-overrun validation remains pending.
