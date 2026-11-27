@@ -35,10 +35,11 @@
 #undef MTP_MANUF
 #undef MTP_MODEL
 #undef MTP_NAME
-#define MTP_MANUF "OBD logger"
-extern "C" char loggerName[16];
-#define MTP_MODEL loggerName
-#define MTP_NAME loggerName
+#include "../../ProductIdentity.h"
+#define MTP_MANUF SKIDRIVE_MANUFACTURER
+extern "C" char loggerUsbName[32];
+#define MTP_MODEL SKIDRIVE_PRODUCT_LABEL
+#define MTP_NAME loggerUsbName
 #include "MTP_Const.h"
 #undef USB_DESC_LIST_DEFINE
 #include "usb_desc.h"

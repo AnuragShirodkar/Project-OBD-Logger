@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include "RunControl.h"
+#include "ProductIdentity.h"
 
 namespace automatic {
 constexpr const char CAN_ASC_END[]="End Triggerblock\n";
@@ -10,7 +11,7 @@ constexpr size_t CAN_ASC_END_SIZE=sizeof(CAN_ASC_END)-1;
 inline bool formatCanAscHeader(char *out,size_t capacity,const char *firmware,
                                const char *logger,const char *file,uint32_t bitrate,uint32_t fingerprint){
   const int n=snprintf(out,capacity,
-    "// SkiDrive Classical CAN capture\n// Product: SkiDrive\n"
+    "// " SKIDRIVE_PRODUCT_LABEL "\n// Product: " SKIDRIVE_PRODUCT "\n"
     "// Firmware: %s\n// Logger: %s\n// File: %s\n"
     "// Operating mode: can; bitrate: %lu; listen-only; standard and extended IDs\n"
     "// Config FNV1a: %08lX\n"

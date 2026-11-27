@@ -3,9 +3,10 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+#include "ProductIdentity.h"
 
 namespace obd {
-constexpr const char *LOG_TITLE="OBD-SkillLogger Version 1.0.0";
+constexpr const char *LOG_TITLE=SKIDRIVE_PRODUCT_LABEL;
 constexpr size_t DATE_WIDTH=19;
 inline bool leap(unsigned y){return y%4==0 && (y%100!=0 || y%400==0);}
 inline unsigned monthDays(unsigned y,unsigned m){

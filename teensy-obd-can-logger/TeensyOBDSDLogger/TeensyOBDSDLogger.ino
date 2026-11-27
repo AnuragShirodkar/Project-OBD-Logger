@@ -18,7 +18,7 @@
 #include "Readiness.h"
 #include "StoragePaths.h"
 #include "CanRecording.h"
-constexpr char FIRMWARE_VERSION[]="1.2.0-dev5-rx-stage";
+constexpr char FIRMWARE_VERSION[]="1.2.0-dev6-skidrive";
 automatic::Mode4Feedback mode4Feedback;
 Adafruit_SSD1306 oled(128,32,&Wire,-1);
 bool oledReady=false;
@@ -215,7 +215,7 @@ bool writeHeaders(){
     const size_t n=strlen(header),written=obdfile.write((const uint8_t*)header,n);
     storageUsed+=written;return written==n;
   }
-  snprintf(header,sizeof header,"OBD-SkillLogger Version 1.0.0\nFirmware: %s\nLogger: %s\nFile: %s\n",FIRMWARE_VERSION,loggerName,obdName);
+  snprintf(header,sizeof header,"%s\nFirmware: %s\nLogger: %s\nFile: %s\n",SKIDRIVE_PRODUCT_LABEL,FIRMWARE_VERSION,loggerName,obdName);
   size_t used=strlen(header);
   if(configGood){
     snprintf(header+used,sizeof header-used,
@@ -420,9 +420,9 @@ bool openLogSegment(){
 }
 // Stage 1: report and quiesce only; no flash programming command is enabled.
 void updateStatus(){
-  char reply[640];
+  char reply[768];
   const char *state=finished?(completedClean?"ready":"failed"):closing?"preparing":"not_prepared";
-  snprintf(reply,sizeof reply,"@UPDATE {\"protocol\":1,\"product\":\"SkiDrive\",\"device_type\":\"OBD_LOGGER\",\"id\":\"%s\",\"firmware\":\"%s\",\"hardware\":\"unassigned\",\"operating_mode\":\"%s\",\"state\":\"%s\",\"sd_mounted\":%s,\"oled_ready\":%s,\"logging_fault\":%s,\"sd_failures\":%lu,\"log_drops\":%lu,\"capture_drops\":%lu,\"can_esr1\":%lu,\"stop_reason\":\"%s\",\"flash_enabled\":false}\n",
+  snprintf(reply,sizeof reply,"@UPDATE {\"protocol\":1,\"product\":\"SkiDrive\",\"display_name\":\"" SKIDRIVE_PRODUCT_LABEL "\",\"device_type\":\"OBD_LOGGER\",\"id\":\"%s\",\"firmware\":\"%s\",\"hardware\":\"unassigned\",\"operating_mode\":\"%s\",\"state\":\"%s\",\"sd_mounted\":%s,\"oled_ready\":%s,\"logging_fault\":%s,\"sd_failures\":%lu,\"log_drops\":%lu,\"capture_drops\":%lu,\"can_esr1\":%lu,\"stop_reason\":\"%s\",\"flash_enabled\":false}\n",
     loggerName,FIRMWARE_VERSION,modeKnown?automatic::modeName(config.mode):"unknown",state,sdMounted?"true":"false",oledReady?"true":"false",loggingFault?"true":"false",(unsigned long)sdFailures,(unsigned long)logDrops,(unsigned long)captureDrops,(unsigned long)(canStarted?FLEXCANb_ESR1(CAN1):0),lastStopReason);
   queueConsole(reply);
 }

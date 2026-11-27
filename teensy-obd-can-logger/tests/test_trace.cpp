@@ -7,7 +7,7 @@ static std::string output;
 void collect(const char *s){output+=s;assert(std::string(s).size()<320);}
 int main(){
   char header[160];obd::formatElapsedHeader(header,sizeof header);
-  assert(std::string(header)=="OBD-SkillLogger Version 1.0.0\n"
+  assert(std::string(header)=="SkiDrive OBD/CAN Logger\n"
     "Time: elapsed milliseconds since power-on\n"
     "Calendar date: unavailable (no time sync)\n\n");
   // A rotated file declares the same power-on origin, not a new clock origin.

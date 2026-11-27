@@ -1,7 +1,8 @@
 # SkiDrive OBD and CAN mode - Windows integration
 
-Current build: `1.2.0-dev5-rx-stage` (installed on OBD_1757338; USB startup/readback
-checked; receive-load validation pending). See [receive-path notes](receive-path-dev5.md)
+Current build: `1.2.0-dev6-skidrive` (product-name update; installation pending).
+Dev5 was installed on OBD_1757338; USB startup/readback checked, receive-load
+validation pending. See [receive-path notes](receive-path-dev5.md)
 and [installation check](test-reports/2026-11-27-dev5-installation-usb-check.md).
 Same hardware, one CAN channel, pins TX 22 / RX 23.
 This adds configuration-selected behaviour, not simultaneous OBD polling and raw capture.
@@ -62,7 +63,8 @@ unchanged. The existing `hardware: "unassigned"` limitation also remains.
 - CAN: receive-only `.ASC` under LOGS, such as `01_CAN_1757338.ASC`. Enumerate both
   TXT and ASC, plus legacy root recordings during migration. Do not overwrite downloads
   with matching basenames from different paths. Each extension has its own index scan.
-  The numeric ID is unchanged; USB/device_info still uses OBD_<ID>. Also accept
+  The permanent device_info ID remains OBD_<ID>. From dev6, the USB/MTP friendly
+  name is SkiDrive_<numeric ID>, for example SkiDrive_1757338. Also accept
   earlier OBD_<ID>.ASC filenames when reading existing recordings; do not rename them.
 - Keep the 250,000,000-byte cap per file, including header. Elapsed time remains continuous
   across rotation; each segment repeats the metadata/header. No calendar date is fabricated.
@@ -80,7 +82,8 @@ unchanged. The existing `hardware: "unassigned"` limitation also remains.
   not copied. No synthetic Log Trigger Event is inserted into actual recordings.
   See examples/CAN_ASC_LAYOUT_EXAMPLE.asc for a clearly marked synthetic sample.
 - Times are software receive timestamps with six decimal places in seconds, not a
-  guarantee of hardware microsecond accuracy. The clock is extended through micros()
+  guarantee of hardware microsecond accuracy. From dev5 the clock uses GPT2 at
+  1 MHz, independently of DWT/SysTick, and is extended through its 32-bit counter
   rollover by main-loop and ISR sampling. Main-loop sampling must run at least once
   per 71-minute wrap, including on a silent bus; a firmware freeze beyond that is not
   covered. Captures do not include physical error waveforms or malformed frames

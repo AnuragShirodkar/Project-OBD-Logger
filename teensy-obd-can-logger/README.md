@@ -1,4 +1,4 @@
-# SkiDrive SD-configured OBD / Classical CAN logger
+# SkiDrive OBD/CAN Logger
 
 ## Separate OBD/CAN project
 
@@ -15,7 +15,7 @@ This is the separate OBD/CAN Arduino sketch. Open `TeensyOBDSDLogger/TeensyOBDSD
 
 ## Dual-mode firmware (current behaviour)
 
-Firmware `1.2.0-dev5-rx-stage` selects OBD polling or Classical CAN listen-only
+Firmware `1.2.0-dev6-skidrive` selects OBD polling or Classical CAN listen-only
 recording using one `/CONFIG/config.json`. See the [software handoff](docs/dual-mode-software-handoff.md)
 and `config.obd.example.json` / `config.can.example.json`. Version-1 configs remain
 OBD configs. New configs use version 2 and `operating_mode`. CAN recordings use

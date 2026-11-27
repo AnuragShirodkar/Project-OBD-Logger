@@ -54,6 +54,7 @@ int main(int argc,char **argv){
   assert(automatic::formatCanAscHeader(header,sizeof header,"1.2.0-dev4-idle-sd","OBD_1757338",
     "/LOGS/01_CAN_1757338.ASC",500000,0x1234ABCD));
   assert(strstr(header,"// Firmware: 1.2.0-dev4-idle-sd\n"));
+  assert(strstr(header,"// SkiDrive OBD/CAN Logger\n// Product: SkiDrive\n"));
   assert(strstr(header,"// Logger: OBD_1757338\n"));
   assert(strstr(header,"// Config FNV1a: 1234ABCD\n"));
   assert(strstr(header,"// Firmware:")<strstr(header,"base hex"));
